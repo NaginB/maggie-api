@@ -1,28 +1,37 @@
-// src/routes/index.ts
-import express, { Router } from "express";
+import { Router } from "express";
 import { createController } from "../controllers";
+import { validateBody } from "../utils/validateBody";
 import { Model } from "mongoose";
+import Joi from "joi";
 
 interface MaggieModelPayload {
   model: Model<any>;
   path: string;
+  validationSchema?: Joi.ObjectSchema;
 }
 
-interface MaggieInput {
+interface MaggiePayload {
   prefix: string;
   models: MaggieModelPayload[];
 }
 
-const createMaggie = ({ prefix, models }: MaggieInput): Router => {
-  const router = express.Router();
+const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
+  const router = Router();
 
-  models.forEach(({ model, path }) => {
+  models.forEach(({ model, path, validationSchema }) => {
     const controller = createController(model);
-    const subRouter = express.Router();
+    const subRouter = Router();
 
-    // subRouter.post("/", controller.add);
-    // subRouter.put("/", controller.update);
-    subRouter.post("/", controller.addOrUpdate);
+    if (validationSchema) {
+      subRouter.post(
+        "/",
+        validateBody(validationSchema),
+        controller.addOrUpdate
+      );
+    } else {
+      subRouter.post("/", controller.addOrUpdate);
+    }
+
     subRouter.delete("/:id", controller.remove);
     subRouter.get("/", controller.getAll);
     subRouter.get("/:id", controller.getById);
