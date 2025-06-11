@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { createController } from "../controllers";
 import { validateBody } from "../utils/validateBody";
 import { Model } from "mongoose";
@@ -9,6 +9,7 @@ interface MaggieModelPayload {
   path: string;
   validationSchema?: Joi.ObjectSchema;
   primaryKey?: string;
+  middleWares?: RequestHandler[]; // NEW
 }
 
 interface MaggiePayload {
@@ -19,26 +20,25 @@ interface MaggiePayload {
 const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
   const router = Router();
 
-  models.forEach(({ model, path, validationSchema, primaryKey }) => {
-    const controller = createController(model, primaryKey);
-    const subRouter = Router();
+  models.forEach(
+    ({ model, path, validationSchema, primaryKey, middleWares = [] }) => {
+      const controller = createController(model, primaryKey);
+      const subRouter = Router();
 
-    if (validationSchema) {
-      subRouter.post(
-        "/",
-        validateBody(validationSchema),
-        controller.addOrUpdate
-      );
-    } else {
-      subRouter.post("/", controller.addOrUpdate);
+      const middlewareStack: RequestHandler[] = [...middleWares];
+
+      if (validationSchema) {
+        middlewareStack.push(validateBody(validationSchema));
+      }
+
+      subRouter.post("/", ...middlewareStack, controller.addOrUpdate);
+      subRouter.delete("/:id", ...middleWares, controller.remove);
+      subRouter.get("/", ...middleWares, controller.getAll);
+      subRouter.get("/:id", ...middleWares, controller.getById);
+
+      router.use(`${prefix}/${path}`, subRouter);
     }
-
-    subRouter.delete("/:id", controller.remove);
-    subRouter.get("/", controller.getAll);
-    subRouter.get("/:id", controller.getById);
-
-    router.use(`${prefix}/${path}`, subRouter);
-  });
+  );
 
   return router;
 };

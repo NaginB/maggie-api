@@ -20,15 +20,14 @@ const UserValidationSchema = Joi.object({
 
 const apiRouter = createMaggie({
   prefix: "/api/v1",
-
   models: [
     {
       model: Models.User,
       path: "user",
       validationSchema: UserValidationSchema,
       primaryKey: "email",
+      middleWares: [],
     },
-    // { model: Product, path: "product" },
   ],
 });
 
