@@ -12,8 +12,10 @@ app.get("/", (_req: Request, res: Response) => {
 });
 
 const UserValidationSchema = Joi.object({
+  _id: Joi.string().required(),
   firstName: Joi.string().required(),
   lastName: Joi.string().required(),
+  email: Joi.string().email().required(),
 });
 
 const apiRouter = createMaggie({
@@ -24,6 +26,7 @@ const apiRouter = createMaggie({
       model: Models.User,
       path: "user",
       validationSchema: UserValidationSchema,
+      primaryKey: "email",
     },
     // { model: Product, path: "product" },
   ],

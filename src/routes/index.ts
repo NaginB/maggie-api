@@ -8,6 +8,7 @@ interface MaggieModelPayload {
   model: Model<any>;
   path: string;
   validationSchema?: Joi.ObjectSchema;
+  primaryKey?: string;
 }
 
 interface MaggiePayload {
@@ -18,8 +19,8 @@ interface MaggiePayload {
 const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
   const router = Router();
 
-  models.forEach(({ model, path, validationSchema }) => {
-    const controller = createController(model);
+  models.forEach(({ model, path, validationSchema, primaryKey }) => {
+    const controller = createController(model, primaryKey);
     const subRouter = Router();
 
     if (validationSchema) {

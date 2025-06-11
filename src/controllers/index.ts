@@ -2,17 +2,46 @@ import { Request, Response } from "express";
 import { createDoc, updateDoc, deleteById, getAll, getById } from "../services";
 import { Model } from "mongoose";
 
-export const createController = (model: Model<any>) => {
+export const createController = (model: Model<any>, primaryKey?: string) => {
   const modelName = model.modelName;
-
   return {
     addOrUpdate: async (req: Request, res: Response): Promise<any> => {
       try {
         const { _id, ...rest } = req.body;
         let result;
 
+        // ✅ Check uniqueness for primaryKey (only if provided)
+        if (primaryKey && rest[primaryKey]) {
+          const existing = await model.findOne({
+            [primaryKey]: rest[primaryKey],
+          });
+
+          if (_id) {
+            // ⚠️ Prevent updating to a primary key that exists on another doc
+            if (existing && existing._id.toString() !== _id) {
+              return res.status(409).json({
+                success: false,
+                statusCode: 409,
+                message: `${modelName} with this ${primaryKey} already exists`,
+                data: null,
+              });
+            }
+          } else {
+            // ⚠️ Prevent creating if primary key already exists
+            if (existing) {
+              return res.status(409).json({
+                success: false,
+                statusCode: 409,
+                message: `${modelName} with this ${primaryKey} already exists`,
+                data: null,
+              });
+            }
+          }
+        }
+
         if (_id) {
           result = await updateDoc(model, { _id, ...rest });
+
           if (!result) {
             return res.status(404).json({
               success: false,
@@ -39,7 +68,7 @@ export const createController = (model: Model<any>) => {
           data: result,
         });
       } catch (error: any) {
-        res.status(500).json({
+        return res.status(500).json({
           success: false,
           statusCode: 500,
           message: error.message || `Failed to process ${modelName}`,
