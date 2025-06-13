@@ -64,27 +64,36 @@ app.listen(3000, () => {
 
 ## 🛠 Features
 
-### 1. Add or Update API (POST /\:model)
+### 1. Add or Update API (`POST /:model`)
 
-- Merges create and update logic.
-- `_id` in body triggers update; otherwise, a new record is created.
-- Automatically checks `primaryKey` uniqueness on create.
+- Merges create and update logic into a single endpoint.
+- If the request body contains `_id`, it triggers an update; otherwise, a new record is created.
+- Automatically checks `primaryKey` uniqueness during creation.
+- During update, it ignores the current document when checking for duplicates.
 
 ### 2. Joi Validation
 
-- Supports body validation via Joi schemas for POST APIs.
-- Only one error message is sent at a time for clarity.
+- Supports request body validation using Joi schemas for `POST` operations.
+- Only one validation error message is returned per request to enhance clarity.
+- Validation schemas are customizable per model.
 
 ### 3. Primary Key Uniqueness
 
-- Set a `primaryKey` field like `email` to ensure it is unique on creation.
-- Duplicate entries will be rejected.
+- Define a `primaryKey` (e.g. `email`, `username`) to enforce uniqueness on creation.
+- If a duplicate is found, the API returns a descriptive error.
 
 ### 4. Custom Middlewares
 
-- Use the `middleWares` array to add custom Express middlewares to the POST route.
+- Use the `middleWares` array to inject custom Express middlewares into the `POST` route.
+- Enables features like authentication, authorization, logging, etc.
 
-### 5. CRUD Endpoints (Auto-generated)
+### 5. Field Filtering: `getKeys` and `getByIdKeys`
+
+- Use `getKeys` to return only selected fields for the `GET /:model` endpoint.
+- Use `getByIdKeys` to filter the fields returned in `GET /:model/:id`.
+- Helps reduce payload size and expose only relevant data.
+
+### 6. CRUD Endpoints (Auto-generated)
 
 | Method   | Endpoint           | Description           |
 | -------- | ------------------ | --------------------- |
@@ -92,8 +101,6 @@ app.listen(3000, () => {
 | `GET`    | `/api/v1/user`     | Fetch all Users       |
 | `GET`    | `/api/v1/user/:id` | Fetch User by ID      |
 | `DELETE` | `/api/v1/user/:id` | Delete User by ID     |
-
----
 
 ## 📡 Sample cURL Commands
 
