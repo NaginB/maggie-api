@@ -1,8 +1,7 @@
-// src/utils/validateBody.ts
 import { Request, Response, NextFunction } from "express";
-import Joi from "joi";
+import { Schema } from "joi";
 
-export const validateBody = (schema: Joi.ObjectSchema): any => {
+export const validateBody = (schema: Schema): any => {
   return (req: Request, res: Response, next: NextFunction) => {
     const { error } = schema.validate(req.body, { abortEarly: true });
     if (error) {

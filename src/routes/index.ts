@@ -37,12 +37,16 @@ const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
       const subRouter = Router();
 
       const middlewareStack: RequestHandler[] = [...middleWares];
+      const bulkMiddlewareStack: RequestHandler[] = [...middleWares];
 
       if (validationSchema) {
         middlewareStack.push(validateBody(validationSchema));
+        const bulkValidationSchema = Joi.array().items(validationSchema);
+        bulkMiddlewareStack.push(validateBody(bulkValidationSchema));
       }
 
       subRouter.post("/", ...middlewareStack, controller.addOrUpdate);
+      subRouter.post("/bulk", ...bulkMiddlewareStack, controller.insertMany);
       subRouter.delete("/:id", ...middleWares, controller.remove);
       subRouter.get("/", ...middleWares, controller.getAll);
       subRouter.get("/:id", ...middleWares, controller.getById);

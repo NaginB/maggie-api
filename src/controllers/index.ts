@@ -1,5 +1,12 @@
 import { Request, Response } from "express";
-import { createDoc, updateDoc, deleteById, getAll, getById } from "../services";
+import {
+  createDoc,
+  updateDoc,
+  deleteById,
+  getAll,
+  getById,
+  insertMany,
+} from "../services";
 import { Model } from "mongoose";
 import { ControllerSettings } from "utils/inteface";
 
@@ -146,6 +153,51 @@ export const createController = (
           success: false,
           statusCode: 404,
           message: error.message,
+          data: null,
+        });
+      }
+    },
+    insertMany: async (req: Request, res: Response): Promise<any> => {
+      try {
+        const docs = req.body;
+
+        if (!Array.isArray(docs) || docs.length === 0) {
+          return res.status(400).json({
+            success: false,
+            statusCode: 400,
+            message: "Request body must be a non-empty array of documents",
+            data: null,
+          });
+        }
+
+        //  Check primary key uniqueness
+        if (primaryKey) {
+          const values = docs.map((doc) => doc[primaryKey]).filter(Boolean);
+          const existing = await model.find({ [primaryKey]: { $in: values } });
+
+          if (existing.length > 0) {
+            return res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: `Duplicate ${primaryKey} values`,
+              error: existing.map((doc) => doc[primaryKey]),
+            });
+          }
+        }
+
+        const result = await insertMany(model, docs);
+
+        return res.status(201).json({
+          success: true,
+          statusCode: 201,
+          message: `${docs.length} ${modelName}(s) created successfully`,
+          data: result,
+        });
+      } catch (error: any) {
+        return res.status(500).json({
+          success: false,
+          statusCode: 500,
+          message: error.message || `Failed to insert ${modelName}s`,
           data: null,
         });
       }

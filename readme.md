@@ -48,6 +48,8 @@ const apiRouter = createMaggie({
       path: "user",
       validationSchema: UserValidationSchema,
       primaryKey: "email",
+      getKeys: ["_id", "firstName", "email"],
+      getByIdKeys: ["_id", "firstName", "lastName", "email"],
       middleWares: [],
     },
   ],
@@ -95,12 +97,13 @@ app.listen(3000, () => {
 
 ### 6. CRUD Endpoints (Auto-generated)
 
-| Method   | Endpoint           | Description           |
-| -------- | ------------------ | --------------------- |
-| `POST`   | `/api/v1/user`     | Create or Update User |
-| `GET`    | `/api/v1/user`     | Fetch all Users       |
-| `GET`    | `/api/v1/user/:id` | Fetch User by ID      |
-| `DELETE` | `/api/v1/user/:id` | Delete User by ID     |
+| Method   | Endpoint            | Description           |
+| -------- | ------------------- | --------------------- |
+| `POST`   | `/api/v1/user`      | Create or Update User |
+| `POST`   | `/api/v1/user/bulk` | Bulk Insert Users     |
+| `GET`    | `/api/v1/user`      | Fetch all Users       |
+| `GET`    | `/api/v1/user/:id`  | Fetch User by ID      |
+| `DELETE` | `/api/v1/user/:id`  | Delete User by ID     |
 
 ## 📡 Sample cURL Commands
 
@@ -136,6 +139,17 @@ curl http://localhost:3000/api/v1/user/665c8d1234567890
 
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/user/665c8d1234567890
+```
+
+### 🚚 Bulk Insert Users
+
+```bash
+curl -X POST http://localhost:3000/api/v1/user/bulk \
+-H "Content-Type: application/json" \
+-d '[
+  {"firstName":"Bob","lastName":"Smith","email":"bob@example.com"},
+  {"firstName":"Carol","lastName":"Jones","email":"carol@example.com"}
+]'
 ```
 
 ---

@@ -19,7 +19,6 @@ export const getAll = async (
   model: Model<any>,
   settings: ControllerSettings
 ) => {
-  console.log("join: ", settings.getKeys.join(" "));
   return settings.getKeys.length
     ? await model.find().select(settings.getKeys.join(" "))
     : await model.find();
@@ -33,4 +32,12 @@ export const getById = async (
   return settings.getByIdKeys?.length
     ? await model.findById(id).select(settings.getByIdKeys.join(" "))
     : await model.findById(id);
+};
+
+// 🔹 insertMany service
+export const insertMany = async (model: Model<any>, docs: any[]) => {
+  if (!Array.isArray(docs)) {
+    throw new Error("insertMany expects an array of documents");
+  }
+  return await model.insertMany(docs);
 };
