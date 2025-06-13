@@ -1,6 +1,7 @@
 # 🧙‍♀️ maggie-api
 
 **Auto-generate full-featured CRUD APIs for your Mongoose models in Express with one powerful config.**
+
 Supports:
 
 - ✅ Joi Validation
@@ -105,6 +106,8 @@ app.listen(3000, () => {
 | `GET`    | `/api/v1/user/:id`  | Fetch User by ID      |
 | `DELETE` | `/api/v1/user/:id`  | Delete User by ID     |
 
+---
+
 ## 📡 Sample cURL Commands
 
 ### ➕ Add a User
@@ -156,6 +159,8 @@ curl -X POST http://localhost:3000/api/v1/user/bulk \
 
 ## ✅ Standard JSON Response Format
 
+### On success:
+
 ```json
 {
   "success": true,
@@ -169,7 +174,7 @@ curl -X POST http://localhost:3000/api/v1/user/bulk \
 }
 ```
 
-On validation failure:
+### On validation failure:
 
 ```json
 {
@@ -182,7 +187,7 @@ On validation failure:
 
 ---
 
-## 🗂 Example Project Structure
+## 📂 Example Project Structure
 
 ```
 your-app/
