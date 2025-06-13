@@ -1,5 +1,6 @@
 // src/services/index.ts
 import { Model } from "mongoose";
+import { ControllerSettings } from "utils/inteface";
 
 export const createDoc = async (model: Model<any>, data: any) => {
   return await model.create(data);
@@ -14,10 +15,22 @@ export const deleteById = async (model: Model<any>, id: string) => {
   return await model.findByIdAndDelete(id);
 };
 
-export const getAll = async (model: Model<any>) => {
-  return await model.find();
+export const getAll = async (
+  model: Model<any>,
+  settings: ControllerSettings
+) => {
+  console.log("join: ", settings.getKeys.join(" "));
+  return settings.getKeys.length
+    ? await model.find().select(settings.getKeys.join(" "))
+    : await model.find();
 };
 
-export const getById = async (model: Model<any>, id: string) => {
-  return await model.findById(id);
+export const getById = async (
+  model: Model<any>,
+  id: string,
+  settings: ControllerSettings
+) => {
+  return settings.getByIdKeys?.length
+    ? await model.findById(id).select(settings.getByIdKeys.join(" "))
+    : await model.findById(id);
 };

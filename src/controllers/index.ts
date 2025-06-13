@@ -1,9 +1,14 @@
 import { Request, Response } from "express";
 import { createDoc, updateDoc, deleteById, getAll, getById } from "../services";
 import { Model } from "mongoose";
+import { ControllerSettings } from "utils/inteface";
 
-export const createController = (model: Model<any>, primaryKey?: string) => {
+export const createController = (
+  model: Model<any>,
+  settings: ControllerSettings
+) => {
   const modelName = model.modelName;
+  const { primaryKey = "" } = settings;
   return {
     addOrUpdate: async (req: Request, res: Response): Promise<any> => {
       try {
@@ -99,7 +104,7 @@ export const createController = (model: Model<any>, primaryKey?: string) => {
 
     getAll: async (_req: Request, res: Response): Promise<any> => {
       try {
-        const result = await getAll(model);
+        const result = await getAll(model, settings);
 
         return res.status(200).json({
           success: true,
@@ -119,7 +124,7 @@ export const createController = (model: Model<any>, primaryKey?: string) => {
 
     getById: async (req: Request, res: Response): Promise<any> => {
       try {
-        const result = await getById(model, req.params.id);
+        const result = await getById(model, req.params.id, settings);
 
         if (!result) {
           return res.status(404).json({

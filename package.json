@@ -1,6 +1,6 @@
 {
   "name": "maggie-api",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "🧙‍♀️ A magical Express middleware to auto-generate CRUD APIs for Mongoose models with validation, unique keys, and middlewares.",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -74,17 +74,16 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/naginbanodha/maggie-api"
+    "url": "https://github.com/NaginB/maggie-api"
   },
   "bugs": {
-    "url": "https://github.com/naginbanodha/maggie-api/issues"
+    "url": "https://github.com/NaginB/maggie-api/issues"
   },
   "homepage": "https://www.linkedin.com/in/nagin-banodha/",
   "dependencies": {
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "joi": "^17.13.3",
-    "maggie-api": "^1.0.0",
     "mongoose": "^8.15.1"
   },
   "devDependencies": {

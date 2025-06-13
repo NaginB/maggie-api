@@ -9,7 +9,9 @@ interface MaggieModelPayload {
   path: string;
   validationSchema?: Joi.ObjectSchema;
   primaryKey?: string;
-  middleWares?: RequestHandler[]; // NEW
+  middleWares?: RequestHandler[];
+  getKeys?: string[];
+  getByIdKeys?: string[];
 }
 
 interface MaggiePayload {
@@ -21,8 +23,17 @@ const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
   const router = Router();
 
   models.forEach(
-    ({ model, path, validationSchema, primaryKey, middleWares = [] }) => {
-      const controller = createController(model, primaryKey);
+    ({
+      model,
+      path,
+      validationSchema,
+      primaryKey,
+      middleWares = [],
+      getKeys = [],
+      getByIdKeys = [],
+    }) => {
+      const settings = { getByIdKeys, getKeys, primaryKey };
+      const controller = createController(model, settings);
       const subRouter = Router();
 
       const middlewareStack: RequestHandler[] = [...middleWares];
