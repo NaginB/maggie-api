@@ -1,6 +1,6 @@
 // src/services/index.ts
 import { Model } from "mongoose";
-import { ControllerSettings, ISetting } from "utils/interface";
+import { ISetting } from "../utils/interface";
 
 export const createDoc = async (model: Model<any>, data: any) => {
   return await model.create(data);

@@ -2,7 +2,7 @@ import { Router, RequestHandler } from "express";
 import { createController } from "../controllers";
 import { validateBody } from "../utils/validateBody";
 import Joi from "joi";
-import { ISetting, MaggiePayload } from "utils/interface";
+import { ISetting, MaggiePayload } from "../utils/interface";
 
 const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
   const router = Router();

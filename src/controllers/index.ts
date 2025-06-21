@@ -8,7 +8,7 @@ import {
   insertMany,
 } from "../services";
 import { Model } from "mongoose";
-import { ControllerSettings } from "utils/interface";
+import { ControllerSettings } from "../utils/interface";
 
 export const createController = (
   model: Model<any>,
