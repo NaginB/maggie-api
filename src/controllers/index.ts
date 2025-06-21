@@ -8,7 +8,7 @@ import {
   insertMany,
 } from "../services";
 import { Model } from "mongoose";
-import { ControllerSettings } from "utils/inteface";
+import { ControllerSettings } from "utils/interface";
 
 export const createController = (
   model: Model<any>,
@@ -80,6 +80,7 @@ export const createController = (
           data: result,
         });
       } catch (error: any) {
+        console.log(error);
         return res.status(500).json({
           success: false,
           statusCode: 500,

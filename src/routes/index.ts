@@ -1,23 +1,8 @@
 import { Router, RequestHandler } from "express";
 import { createController } from "../controllers";
 import { validateBody } from "../utils/validateBody";
-import { Model } from "mongoose";
 import Joi from "joi";
-
-interface MaggieModelPayload {
-  model: Model<any>;
-  path: string;
-  validationSchema?: Joi.ObjectSchema;
-  primaryKey?: string;
-  middleWares?: RequestHandler[];
-  getKeys?: string[];
-  getByIdKeys?: string[];
-}
-
-interface MaggiePayload {
-  prefix: string;
-  models: MaggieModelPayload[];
-}
+import { ISetting, MaggiePayload } from "utils/interface";
 
 const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
   const router = Router();
@@ -31,9 +16,16 @@ const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
       middleWares = [],
       getKeys = [],
       getByIdKeys = [],
+      settings,
     }) => {
-      const settings = { getByIdKeys, getKeys, primaryKey };
-      const controller = createController(model, settings);
+      const settingsObj: ISetting = {
+        getByIdKeys: settings?.getById?.keys ?? getByIdKeys,
+        getKeys: settings?.get?.keys ?? getKeys,
+        primaryKey,
+        ...settings,
+      };
+
+      const controller = createController(model, settingsObj);
       const subRouter = Router();
 
       const middlewareStack: RequestHandler[] = [...middleWares];

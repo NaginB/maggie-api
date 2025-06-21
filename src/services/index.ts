@@ -1,6 +1,6 @@
 // src/services/index.ts
 import { Model } from "mongoose";
-import { ControllerSettings } from "utils/inteface";
+import { ControllerSettings, ISetting } from "utils/interface";
 
 export const createDoc = async (model: Model<any>, data: any) => {
   return await model.create(data);
@@ -15,23 +15,56 @@ export const deleteById = async (model: Model<any>, id: string) => {
   return await model.findByIdAndDelete(id);
 };
 
-export const getAll = async (
-  model: Model<any>,
-  settings: ControllerSettings
-) => {
-  return settings.getKeys.length
-    ? await model.find().select(settings.getKeys.join(" "))
-    : await model.find();
+export const getAll = async (model: Model<any>, settings: ISetting) => {
+  try {
+    let query = model.find();
+
+    // Apply field selection if keys are specified
+    if (settings.getKeys?.length) {
+      query = query.select(settings.getKeys.join(" "));
+    }
+
+    // Apply population if specified
+    if (settings.get?.populate?.length) {
+      for (const pop of settings.get.populate) {
+        query = query.populate(pop);
+      }
+    }
+
+    const results = await query.exec();
+    return results;
+  } catch (error) {
+    console.error("Error in getAll:", error);
+    throw error;
+  }
 };
 
 export const getById = async (
   model: Model<any>,
   id: string,
-  settings: ControllerSettings
+  settings: ISetting
 ) => {
-  return settings.getByIdKeys?.length
-    ? await model.findById(id).select(settings.getByIdKeys.join(" "))
-    : await model.findById(id);
+  try {
+    let query = model.findById(id);
+
+    // Select specific fields
+    if (settings.getByIdKeys?.length) {
+      query = query.select(settings.getByIdKeys.join(" "));
+    }
+
+    // Populate fields if defined
+    if (settings.getById?.populate?.length) {
+      for (const pop of settings.getById.populate) {
+        query = query.populate(pop);
+      }
+    }
+
+    const result = await query.exec();
+    return result;
+  } catch (error) {
+    console.error("Error in getById:", error);
+    throw error;
+  }
 };
 
 // 🔹 insertMany service

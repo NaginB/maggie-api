@@ -1,14 +1,14 @@
 {
   "name": "maggie-api",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "🧙‍♀️ A magical Express middleware to auto-generate CRUD APIs for Mongoose models with validation, unique keys, and middlewares.",
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/index.js"
   },
   "keywords": [
     "express",

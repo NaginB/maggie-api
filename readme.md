@@ -9,6 +9,8 @@ Supports:
 - ✅ Unique Primary Key Constraints
 - ✅ Add/Update Merged API
 - ✅ Consistent JSON Responses
+- ✅ Field Selection & Population
+- ✅ Bulk Insert Support
 
 ---
 
@@ -48,10 +50,29 @@ const apiRouter = createMaggie({
       model: Models.User,
       path: "user",
       validationSchema: UserValidationSchema,
-      primaryKey: "email",
+
+      primaryKey: "email", // ✅ Enforces uniqueness for this key during creation
+
+      // ⚠️ Deprecated: use settings.get.keys instead
       getKeys: ["_id", "firstName", "email"],
+
+      // ⚠️ Deprecated: use settings.getById.keys instead
       getByIdKeys: ["_id", "firstName", "lastName", "email"],
+
+      // 🛡️ Optional: Add Express middleware (auth, logging, etc.)
       middleWares: [],
+
+      // ✅ Recommended: Use `settings.get` and `settings.getById` for field selection and population
+      settings: {
+        get: {
+          populate: [{ path: "department", select: ["_id", "title"] }],
+          keys: ["_id"], // ✅ Only fetch these fields for GET /user
+        },
+        getById: {
+          populate: [{ path: "department", select: ["_id", "title"] }],
+          keys: ["_id"], // ✅ Only fetch these fields for GET /user/:id
+        },
+      },
     },
   ],
 });
@@ -90,11 +111,12 @@ app.listen(3000, () => {
 - Use the `middleWares` array to inject custom Express middlewares into the `POST` route.
 - Enables features like authentication, authorization, logging, etc.
 
-### 5. Field Filtering: `getKeys` and `getByIdKeys`
+### 5. Field Filtering (Deprecated)
 
-- Use `getKeys` to return only selected fields for the `GET /:model` endpoint.
-- Use `getByIdKeys` to filter the fields returned in `GET /:model/:id`.
-- Helps reduce payload size and expose only relevant data.
+- ⚠️ `getKeys` and `getByIdKeys` are deprecated.
+- Use `settings.get.keys` to select fields in `GET /:model`.
+- Use `settings.getById.keys` to select fields in `GET /:model/:id`.
+- This improves flexibility and aligns with modern structured configurations.
 
 ### 6. CRUD Endpoints (Auto-generated)
 
@@ -107,6 +129,26 @@ app.listen(3000, () => {
 | `DELETE` | `/api/v1/user/:id`  | Delete User by ID     |
 
 ---
+
+### 7. Population Support
+
+- Use `settings.get.populate` and `settings.getById.populate` to populate referenced fields.
+- Each populate config accepts a `path` and optional `select` array for nested or targeted population.
+
+```ts
+settings: {
+  get: {
+    populate: [
+      { path: "department", select: ["_id", "title"] }
+    ]
+  },
+  getById: {
+    populate: [
+      { path: "department", select: ["_id", "title"] }
+    ]
+  }
+}
+```
 
 ## 📡 Sample cURL Commands
 

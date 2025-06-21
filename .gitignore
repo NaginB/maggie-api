@@ -1,5 +1,9 @@
 node_modules
+models
+models/*
 notes.txt
 .history
 dist
 .env
+src/testing.ts
+src/models/*
