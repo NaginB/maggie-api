@@ -69,7 +69,13 @@ const apiRouter = createMaggie({
           keys: ["_id"], // ✅ Only fetch these fields for GET /user
         },
         getById: {
-          populate: [{ path: "department", select: ["_id", "title"] }],
+          populate: [
+            {
+              path: "department",
+              select: ["_id", "title"],
+              populate: [{ path: "item", selected: ["_id", "title"] }],
+            },
+          ],
           keys: ["_id"], // ✅ Only fetch these fields for GET /user/:id
         },
       },
