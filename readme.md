@@ -150,7 +150,16 @@ settings: {
   },
   getById: {
     populate: [
-      { path: "department", select: ["_id", "title"] }
+      {
+        path: "department",
+        select: ["_id", "title"] ,
+        populate: [
+          {
+            path: "item",
+            selected: ["_id", "title"]
+          }
+         ],
+      }
     ]
   }
 }
