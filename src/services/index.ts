@@ -1,6 +1,7 @@
 // src/services/index.ts
 import { Model } from "mongoose";
 import { ISetting } from "../utils/interface";
+import { Request } from "express";
 
 export const createDoc = async (model: Model<any>, data: any) => {
   return await model.create(data);
@@ -15,16 +16,64 @@ export const deleteById = async (model: Model<any>, id: string) => {
   return await model.findByIdAndDelete(id);
 };
 
-export const getAll = async (model: Model<any>, settings: ISetting) => {
+export const getAll = async (
+  model: Model<any>,
+  settings: ISetting,
+  req: Request
+) => {
   try {
     let query = model.find();
+    const queryParams = req.query;
 
-    // Apply field selection if keys are specified
+    // 🔍 SEARCH
+    const searchKeyword = queryParams.search as string;
+    const caseSensitive = queryParams.caseSensitive === "true";
+    const searchFieldsFromQuery = (queryParams.searchFields as string)
+      ?.split(",")
+      .map((f) => f.trim());
+
+    const searchConfig = settings.get?.search;
+    const isSearchDisabled = searchConfig?.disabled === true;
+
+    if (
+      !isSearchDisabled &&
+      typeof searchKeyword === "string" &&
+      searchKeyword.trim()
+    ) {
+      let finalSearchFields: string[] = [];
+
+      //  If query param provided → filter it by allowedFields (if any)
+      if (searchFieldsFromQuery?.length) {
+        finalSearchFields = searchConfig?.allowedFields?.length
+          ? searchFieldsFromQuery.filter((field) =>
+              searchConfig.allowedFields!.includes(field)
+            )
+          : searchFieldsFromQuery;
+      }
+
+      //  If no query param → use allowedFields directly (if any)
+      if (!finalSearchFields.length && searchConfig?.allowedFields?.length) {
+        finalSearchFields = searchConfig.allowedFields;
+      }
+
+      //  If we have fields, apply regex search
+      if (finalSearchFields.length) {
+        const regex = new RegExp(searchKeyword, caseSensitive ? "" : "i");
+        const searchConditions = finalSearchFields.map((field) => ({
+          [field]: regex,
+        }));
+        query = query.find({ $or: searchConditions });
+      } else {
+        console.warn("⚠️ Search skipped: No valid searchable fields found.");
+      }
+    }
+
+    //  FIELD SELECTION
     if (settings.getKeys?.length) {
       query = query.select(settings.getKeys.join(" "));
     }
 
-    // Apply population if specified
+    //  POPULATE
     if (settings.get?.populate?.length) {
       for (const pop of settings.get.populate) {
         query = query.populate(pop);

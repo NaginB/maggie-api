@@ -110,9 +110,9 @@ export const createController = (
       }
     },
 
-    getAll: async (_req: Request, res: Response): Promise<any> => {
+    getAll: async (req: Request, res: Response): Promise<any> => {
       try {
-        const result = await getAll(model, settings);
+        const result = await getAll(model, settings, req);
 
         return res.status(200).json({
           success: true,

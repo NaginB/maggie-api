@@ -14,10 +14,24 @@ export interface PopulateField {
   populate?: PopulateField[];
 }
 
+export type SortOrder = "ASC" | "DESC";
+
+export interface SearchConfig {
+  disabled?: boolean;
+  allowedFields?: string[];
+}
+
 interface APISettings {
   get?: {
     populate?: PopulateField[];
     keys?: string[];
+    sort?: {
+      [field: string]: SortOrder;
+    };
+    filter?: {
+      [field: string]: string;
+    };
+    search?: SearchConfig;
   };
   getById?: {
     populate?: PopulateField[];
