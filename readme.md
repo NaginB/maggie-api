@@ -11,6 +11,7 @@ Supports:
 - ✅ Consistent JSON Responses
 - ✅ Field Selection & Population
 - ✅ Bulk Insert Support
+- ✅ Dynamic Search (with keyword, fields, and case sensitivity support)
 
 ---
 
@@ -67,6 +68,12 @@ const apiRouter = createMaggie({
         get: {
           populate: [{ path: "department", select: ["_id", "title"] }],
           keys: ["_id"], // ✅ Only fetch these fields for GET /user
+
+          // 🔍 Search Configuration
+          search: {
+            disabled: false,
+            allowedFields: ["firstName", "lastName", "email"],
+          },
         },
         getById: {
           populate: [
@@ -164,6 +171,40 @@ settings: {
   }
 }
 ```
+
+### 8. Search Support
+
+- ✅ Use `settings.get.search` to enable keyword-based searching on specific fields.
+- 🔍 Accepts query parameters like `search`, `searchFields`, and `caseSensitive`.
+- 🧩 Only fields defined in `allowedFields` will be considered for searching.
+- 🛑 If `disabled: true`, searching will be turned off for that model.
+- 🌐 Falls back to all allowed fields if `searchFields` param is not provided.
+
+**Example Setting:**
+
+```ts
+settings: {
+  get: {
+    search: {
+      disabled: false,
+      allowedFields: ["title", "description", "email"]
+    }
+  }
+}
+```
+
+**Sample Request:**
+
+```http
+GET /api/v1/user?search=mascara&searchFields=title,description&caseSensitive=false
+```
+
+**Behavior:**
+
+- Builds a `$or` regex search query for all specified fields.
+- If no valid fields are provided or allowed → search is skipped.
+
+---
 
 ## 📡 Sample cURL Commands
 
