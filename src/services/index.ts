@@ -2,6 +2,8 @@
 import { Model } from "mongoose";
 import { ISetting } from "../utils/interface";
 import { Request } from "express";
+import { parse } from "qs";
+import { URL } from "url";
 
 export const createDoc = async (model: Model<any>, data: any) => {
   return await model.create(data);
@@ -23,9 +25,47 @@ export const getAll = async (
 ) => {
   try {
     let query = model.find();
-    const queryParams = req.query;
 
-    // 🔍 SEARCH
+    // Use qs to parse nested query params like filter[price][gte]
+    const url = new URL(req.originalUrl, `http://${req.headers.host}`);
+    const queryParams = parse(url.searchParams.toString());
+
+    // 1️⃣ FIELD SELECTION
+    if (settings.getKeys?.length) {
+      query = query.select(settings.getKeys.join(" "));
+    }
+
+    // 2️⃣ FILTERING
+    const rawFilter = queryParams.filter as Record<string, any>;
+    const allowedFilterFields = settings.get?.filter?.allowedFields || [];
+
+    if (rawFilter && typeof rawFilter === "object") {
+      const filterConditions: Record<string, any> = {};
+
+      for (const [field, value] of Object.entries(rawFilter)) {
+        if (!allowedFilterFields.includes(field)) continue;
+
+        if (typeof value === "object" && !Array.isArray(value)) {
+          const rangeQuery: Record<string, any> = {};
+          for (const [op, val] of Object.entries(value)) {
+            if (["gte", "lte", "gt", "lt"].includes(op)) {
+              rangeQuery[`$${op}`] = val;
+            }
+          }
+          filterConditions[field] = rangeQuery;
+        } else if (Array.isArray(value)) {
+          filterConditions[field] = { $in: value };
+        } else {
+          filterConditions[field] = value;
+        }
+      }
+
+      if (Object.keys(filterConditions).length > 0) {
+        query = query.find(filterConditions);
+      }
+    }
+
+    // 3️⃣ SEARCH
     const searchKeyword = queryParams.search as string;
     const caseSensitive = queryParams.caseSensitive === "true";
     const searchFieldsFromQuery = (queryParams.searchFields as string)
@@ -42,7 +82,6 @@ export const getAll = async (
     ) {
       let finalSearchFields: string[] = [];
 
-      //  If query param provided → filter it by allowedFields (if any)
       if (searchFieldsFromQuery?.length) {
         finalSearchFields = searchConfig?.allowedFields?.length
           ? searchFieldsFromQuery.filter((field) =>
@@ -51,12 +90,10 @@ export const getAll = async (
           : searchFieldsFromQuery;
       }
 
-      //  If no query param → use allowedFields directly (if any)
       if (!finalSearchFields.length && searchConfig?.allowedFields?.length) {
         finalSearchFields = searchConfig.allowedFields;
       }
 
-      //  If we have fields, apply regex search
       if (finalSearchFields.length) {
         const regex = new RegExp(searchKeyword, caseSensitive ? "" : "i");
         const searchConditions = finalSearchFields.map((field) => ({
@@ -68,12 +105,7 @@ export const getAll = async (
       }
     }
 
-    //  FIELD SELECTION
-    if (settings.getKeys?.length) {
-      query = query.select(settings.getKeys.join(" "));
-    }
-
-    //  POPULATE
+    // 4️⃣ POPULATE
     if (settings.get?.populate?.length) {
       for (const pop of settings.get.populate) {
         query = query.populate(pop);

@@ -21,16 +21,15 @@ export interface SearchConfig {
   allowedFields?: string[];
 }
 
+export interface FilterConfig {
+  allowedFields?: string[];
+}
+
 interface APISettings {
   get?: {
     populate?: PopulateField[];
     keys?: string[];
-    sort?: {
-      [field: string]: SortOrder;
-    };
-    filter?: {
-      [field: string]: string;
-    };
+    filter?: FilterConfig;
     search?: SearchConfig;
   };
   getById?: {
