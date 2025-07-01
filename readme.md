@@ -12,6 +12,11 @@ Supports:
 - ✅ Field Selection & Population
 - ✅ Bulk Insert Support
 - ✅ Dynamic Search (with keyword, fields, and case sensitivity support)
+- ✅ Pagination Support (limit & page query)
+- ✅ Sorting Support (ascending, descending, multi-field)
+- ✅ Filtering Support (with allowed fields and advanced operators like `$gte`, `$in`)
+- ✅ Auto Pluralized Response Keys
+- ✅ Full CRUD API Auto-generation
 
 ---
 
@@ -213,7 +218,7 @@ GET /api/v1/user?search=mascara&searchFields=title,description&caseSensitive=fal
 
 Sorting, pagination, and filtering are first-class citizens in `maggie-api`, available out of the box for all models.
 
----
+#
 
 #### 🔀 Sorting
 
@@ -227,7 +232,7 @@ Sorting, pagination, and filtering are first-class citizens in `maggie-api`, ava
 - Multiple fields can be sorted in sequence.
 - Sorting is always enabled — no extra config needed.
 
----
+#
 
 #### 📄 Pagination
 
@@ -253,39 +258,6 @@ Sorting, pagination, and filtering are first-class citizens in `maggie-api`, ava
   ```
 
 - If not provided, returns the full result set without pagination.
-
----
-
-#### 🔎 Filtering
-
-- Add structured filters using the `filter` query param:
-
-  ```http
-  ?filter[price][gte]=100&filter[status]=active
-  ```
-
-- Supports:
-
-  - Basic equality: `filter[field]=value`
-  - Ranges: `gte`, `lte`, `gt`, `lt`
-  - Arrays: `filter[tags][]=tag1&filter[tags][]=tag2` (interpreted as `$in`)
-
-- Only fields listed in `settings.get.filter.allowedFields` are considered.
-- Invalid or unlisted fields are ignored silently for safety.
-
-**Example Configuration:**
-
-```ts
-settings: {
-  get: {
-    filter: {
-      allowedFields: ["status", "price", "category"];
-    }
-  }
-}
-```
-
----
 
 #### 📌 Example:
 
@@ -391,7 +363,26 @@ curl -X POST http://localhost:3000/api/v1/user/bulk \
 
 ## ✅ Standard JSON Response Format
 
-### On success:
+`maggie-api` follows a consistent, frontend-friendly response structure for all CRUD operations.
+
+### 🟢 On Success
+
+**Create:**
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "message": "User created successfully",
+  "data": {
+    "_id": "665c8d1234567890",
+    "firstName": "Alice",
+    "email": "alice@example.com"
+  }
+}
+```
+
+**Update:**
 
 ```json
 {
@@ -399,14 +390,74 @@ curl -X POST http://localhost:3000/api/v1/user/bulk \
   "statusCode": 200,
   "message": "User updated successfully",
   "data": {
-    "_id": "...",
-    "firstName": "Alicia",
-    "email": "alice@example.com"
+    "_id": "665c8d1234567890",
+    "firstName": "Alicia"
   }
 }
 ```
 
-### On validation failure:
+**Get All (with optional pagination):**
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "message": "Users fetched successfully",
+  "data": {
+    "users": [...],
+    "pagination": {
+      "total": 100,
+      "page": 2,
+      "limit": 10,
+      "totalPages": 10
+    }
+  }
+}
+```
+
+**Get by ID:**
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "message": "User fetched successfully",
+  "data": {
+    "_id": "665c8d1234567890",
+    "firstName": "Alice"
+  }
+}
+```
+
+**Delete:**
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "message": "User deleted successfully",
+  "data": {
+    "_id": "665c8d1234567890"
+  }
+}
+```
+
+**Bulk Insert:**
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "message": "3 Users created successfully",
+  "data": [{}, {}, {}]
+}
+```
+
+---
+
+### 🔴 On Errors
+
+**Validation Error:**
 
 ```json
 {
@@ -414,6 +465,50 @@ curl -X POST http://localhost:3000/api/v1/user/bulk \
   "statusCode": 400,
   "message": "Validation error",
   "error": "\"email\" is required"
+}
+```
+
+**Duplicate Primary Key (Create or Bulk Insert):**
+
+```json
+{
+  "success": false,
+  "statusCode": 409,
+  "message": "User with this email already exists",
+  "data": null
+}
+```
+
+**Document Not Found (Update or GetById):**
+
+```json
+{
+  "success": false,
+  "statusCode": 404,
+  "message": "User not found",
+  "data": null
+}
+```
+
+**Invalid Request Format (e.g. Bulk Insert with non-array):**
+
+```json
+{
+  "success": false,
+  "statusCode": 400,
+  "message": "Request body must be a non-empty array of documents",
+  "data": null
+}
+```
+
+**Server Error:**
+
+```json
+{
+  "success": false,
+  "statusCode": 500,
+  "message": "Failed to process User",
+  "data": null
 }
 ```
 
