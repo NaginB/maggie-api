@@ -48,42 +48,47 @@ const apiRouter = createMaggie({
   prefix: "/api/v1",
   models: [
     {
-      model: Models.User,
-      path: "user",
-      validationSchema: UserValidationSchema,
-
-      primaryKey: "email", // ✅ Enforces uniqueness for this key during creation
-
-      // ⚠️ Deprecated: use settings.get.keys instead
-      getKeys: ["_id", "firstName", "email"],
-
-      // ⚠️ Deprecated: use settings.getById.keys instead
-      getByIdKeys: ["_id", "firstName", "lastName", "email"],
-
-      // 🛡️ Optional: Add Express middleware (auth, logging, etc.)
-      middleWares: [],
-
-      // ✅ Recommended: Use `settings.get` and `settings.getById` for field selection and population
+      model: ProductModel,
+      path: "product",
+      validationSchema: productValidationSchema,
       settings: {
         get: {
-          populate: [{ path: "department", select: ["_id", "title"] }],
-          keys: ["_id"], // ✅ Only fetch these fields for GET /user
+          // ✅ Only these fields will be returned in GET /product
+          keys: ["_id", "title", "price", "description", "subCategory"],
 
-          // 🔍 Search Configuration
+          // 🔍 Search by title or description using `?search=some+word`
           search: {
             disabled: false,
-            allowedFields: ["firstName", "lastName", "email"],
+            allowedFields: ["title", "description"],
           },
-        },
-        getById: {
+
+          // 🧹 Allow filtering via `?filter[price][gte]=100` or `filter[title]=Shoes`
+          filter: {
+            allowedFields: ["price", "title", "subCategory"],
+          },
+
+          // 🔗 Populate referenced subCategory and its category
           populate: [
             {
-              path: "department",
+              path: "subCategory",
               select: ["_id", "title"],
-              populate: [{ path: "item", selected: ["_id", "title"] }],
+              populate: [{ path: "category", select: ["_id", "title"] }],
             },
           ],
-          keys: ["_id"], // ✅ Only fetch these fields for GET /user/:id
+        },
+
+        getById: {
+          // ✅ Only these fields will be returned in GET /product/:id
+          keys: ["_id", "title", "description", "price", "subCategory"],
+
+          // 🔗 Nested populate same as `get`
+          populate: [
+            {
+              path: "subCategory",
+              select: ["_id", "title"],
+              populate: [{ path: "category", select: ["_id", "title"] }],
+            },
+          ],
         },
       },
     },
@@ -203,6 +208,135 @@ GET /api/v1/user?search=mascara&searchFields=title,description&caseSensitive=fal
 
 - Builds a `$or` regex search query for all specified fields.
 - If no valid fields are provided or allowed → search is skipped.
+
+### 9. Sorting, Pagination & Filtering (Built-in)
+
+Sorting, pagination, and filtering are first-class citizens in `maggie-api`, available out of the box for all models.
+
+---
+
+#### 🔀 Sorting
+
+- Pass a `sort` query param to define sort order:
+
+  ```http
+  ?sort=-createdAt,name
+  ```
+
+- Use a hyphen (`-`) prefix for descending order.
+- Multiple fields can be sorted in sequence.
+- Sorting is always enabled — no extra config needed.
+
+---
+
+#### 📄 Pagination
+
+- Supports standard pagination via `limit` and `page` query parameters:
+
+  ```http
+  ?limit=10&page=2
+  ```
+
+- Only applied when **both** parameters are valid positive integers.
+- Automatically returns metadata:
+
+  ```json
+  {
+    "users": [...],
+    "pagination": {
+      "total": 100,
+      "page": 2,
+      "limit": 10,
+      "totalPages": 10
+    }
+  }
+  ```
+
+- If not provided, returns the full result set without pagination.
+
+---
+
+#### 🔎 Filtering
+
+- Add structured filters using the `filter` query param:
+
+  ```http
+  ?filter[price][gte]=100&filter[status]=active
+  ```
+
+- Supports:
+
+  - Basic equality: `filter[field]=value`
+  - Ranges: `gte`, `lte`, `gt`, `lt`
+  - Arrays: `filter[tags][]=tag1&filter[tags][]=tag2` (interpreted as `$in`)
+
+- Only fields listed in `settings.get.filter.allowedFields` are considered.
+- Invalid or unlisted fields are ignored silently for safety.
+
+**Example Configuration:**
+
+```ts
+settings: {
+  get: {
+    filter: {
+      allowedFields: ["status", "price", "category"];
+    }
+  }
+}
+```
+
+---
+
+#### 📌 Example:
+
+```http
+GET /api/v1/product?filter[price][gte]=500&sort=-createdAt&limit=10&page=1
+```
+
+> ⚠️ Sorting and pagination are always enabled by default. Filtering requires configuring `allowedFields` to avoid accidental or insecure filtering.
+
+This makes it easy to power powerful, customizable tables and dashboards with minimal backend configuration.
+
+---
+
+### 10. Filter Support
+
+`maggie-api` allows powerful and flexible filtering on API endpoints using structured query parameters.
+
+#### 🔧 Key Features:
+
+- Declarative control over filterable fields via `settings.get.filter.allowedFields`
+- Automatically transforms nested filters into MongoDB-compatible queries
+- Supports value types: primitives, arrays, and range operators
+
+#### 🔤 Supported Operators:
+
+| Operator | Usage                    | Translates To              |
+| -------- | ------------------------ | -------------------------- |
+| eq       | `filter[status]=active`  | `{ status: "active" }`     |
+| in       | `filter[tags][]=a&[]=b`  | `{ tags: { $in: [...] } }` |
+| gte      | `filter[price][gte]=100` | `{ price: { $gte: 100 } }` |
+| lte      | `filter[price][lte]=500` | `{ price: { $lte: 500 } }` |
+| gt, lt   | Similar usage            | `$gt`, `$lt`               |
+
+#### 💡 Behavior:
+
+- If a filter field is not included in `allowedFields`, it will be silently ignored.
+- Case-sensitive by default (you may use search for regex-based keyword lookups).
+- Compatible with MongoDB query syntax for advanced filtering.
+
+#### 🧪 Example Request:
+
+```http
+GET /api/v1/user?filter[role]=admin&filter[age][gte]=18
+```
+
+#### ⚠️ Important:
+
+- Always whitelist filterable fields to avoid misuse or performance hits
+- For flexible keyword matching across multiple fields, use the `search` config instead
+
+This filtering system is perfect for admin dashboards, search filters, and dynamic list views.
 
 ---
 

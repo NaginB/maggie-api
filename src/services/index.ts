@@ -4,6 +4,7 @@ import { ISetting } from "../utils/interface";
 import { Request } from "express";
 import { parse } from "qs";
 import { URL } from "url";
+import { singularToPlural } from "../utils/common";
 
 export const createDoc = async (model: Model<any>, data: any) => {
   return await model.create(data);
@@ -112,8 +113,58 @@ export const getAll = async (
       }
     }
 
-    const results = await query.exec();
-    return results;
+    // 5️⃣ SORTING
+    const sortParam = queryParams.sort as string;
+
+    if (sortParam) {
+      const sortFields = sortParam
+        .split(",")
+        .map((field) => field.trim())
+        .filter((field) => field.length > 0)
+        .reduce((acc, field) => {
+          if (field.startsWith("-")) {
+            acc[field.slice(1)] = -1;
+          } else {
+            acc[field] = 1;
+          }
+          return acc;
+        }, {} as Record<string, 1 | -1>);
+
+      query = query.sort(sortFields);
+    }
+
+    let results;
+    let pagination: any = null;
+
+    const limit = parseInt(queryParams.limit as string);
+    const page = parseInt(queryParams.page as string);
+
+    const isPaginate = !isNaN(limit) && limit > 0 && !isNaN(page) && page > 0;
+
+    if (isPaginate) {
+      const skip = (page - 1) * limit;
+      query = query.skip(skip).limit(limit);
+
+      const totalDocs = await model.countDocuments(query.getQuery());
+
+      results = await query.exec();
+      pagination = {
+        total: totalDocs,
+        page,
+        limit,
+        totalPages: Math.ceil(totalDocs / limit),
+      };
+    } else {
+      results = await query.exec();
+    }
+
+    const responseKeyName: string = singularToPlural(
+      model.modelName.toLowerCase()
+    );
+
+    return pagination
+      ? { [responseKeyName]: results, pagination }
+      : { [responseKeyName]: results };
   } catch (error) {
     console.error("Error in getAll:", error);
     throw error;
