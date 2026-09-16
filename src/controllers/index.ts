@@ -94,6 +94,15 @@ export const createController = (
       try {
         const result = await deleteById(model, req.params.id);
 
+        if (!result) {
+          return res.status(404).json({
+            success: false,
+            statusCode: 404,
+            message: `${modelName} not found`,
+            data: null,
+          });
+        }
+
         return res.status(200).json({
           success: true,
           statusCode: 200,
@@ -174,12 +183,25 @@ export const createController = (
         //  Check primary key uniqueness
         if (primaryKey) {
           const values = docs.map((doc) => doc[primaryKey]).filter(Boolean);
+          const duplicateValues = values.filter(
+            (value, index) => values.indexOf(value) !== index
+          );
+
+          if (duplicateValues.length > 0) {
+            return res.status(409).json({
+              success: false,
+              statusCode: 409,
+              message: `Duplicate ${primaryKey} values in request body`,
+              error: [...new Set(duplicateValues)],
+            });
+          }
+
           const existing = await model.find({ [primaryKey]: { $in: values } });
 
           if (existing.length > 0) {
-            return res.status(400).json({
+            return res.status(409).json({
               success: false,
-              statusCode: 400,
+              statusCode: 409,
               message: `Duplicate ${primaryKey} values`,
               error: existing.map((doc) => doc[primaryKey]),
             });

@@ -1,547 +1,104 @@
-# 🧙‍♀️ maggie-api
+# maggie-api
 
-**Auto-generate full-featured CRUD APIs for your Mongoose models in Express with one powerful config.**
+`maggie-api` mounts conventional CRUD routes for Mongoose models in an Express application. Configure each model once to opt into body validation, unique-key checks, field selection, population, search, filtering, sorting, and pagination.
 
-Supports:
-
-- ✅ Joi Validation
-- ✅ Custom Middlewares
-- ✅ Unique Primary Key Constraints
-- ✅ Add/Update Merged API
-- ✅ Consistent JSON Responses
-- ✅ Field Selection & Population
-- ✅ Bulk Insert Support
-- ✅ Dynamic Search (with keyword, fields, and case sensitivity support)
-- ✅ Pagination Support (limit & page query)
-- ✅ Sorting Support (ascending, descending, multi-field)
-- ✅ Filtering Support (with allowed fields and advanced operators like `$gte`, `$in`)
-- ✅ Auto Pluralized Response Keys
-- ✅ Full CRUD API Auto-generation
-
----
-
-## 📦 Installation
+## Installation
 
 ```bash
 npm install maggie-api
-
-# Peer dependencies
-npm install express mongoose joi
 ```
 
----
+The package includes `express`, `mongoose`, and `joi` as dependencies. Your application must connect Mongoose to MongoDB before handling requests.
 
-## 🚀 Quick Start
+## Quick start
 
 ```ts
 import express from "express";
-import { createMaggie } from "maggie-api";
-import Models from "./models";
+import mongoose, { Schema } from "mongoose";
 import Joi from "joi";
+import { createMaggie } from "maggie-api";
 
 const app = express();
 app.use(express.json());
 
-const UserValidationSchema = Joi.object({
-  _id: Joi.string(),
-  firstName: Joi.string().required(),
-  lastName: Joi.string().required(),
-  email: Joi.string().email().required(),
+const userSchema = new Schema({
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
+  email: { type: String, required: true },
 });
+const User = mongoose.model("User", userSchema);
 
-const apiRouter = createMaggie({
+const api = createMaggie({
   prefix: "/api/v1",
   models: [
     {
-      model: ProductModel,
-      path: "product",
-      validationSchema: productValidationSchema,
+      model: User,
+      path: "users",
+      primaryKey: "email",
+      validationSchema: Joi.object({
+        _id: Joi.string(),
+        firstName: Joi.string().required(),
+        lastName: Joi.string().required(),
+        email: Joi.string().email().required(),
+      }),
       settings: {
         get: {
-          // ✅ Only these fields will be returned in GET /product
-          keys: ["_id", "title", "price", "description", "subCategory"],
-
-          // 🔍 Search by title or description using `?search=some+word`
-          search: {
-            disabled: false,
-            allowedFields: ["title", "description"],
-          },
-
-          // 🧹 Allow filtering via `?filter[price][gte]=100` or `filter[title]=Shoes`
-          filter: {
-            allowedFields: ["price", "title", "subCategory"],
-          },
-
-          // 🔗 Populate referenced subCategory and its category
-          populate: [
-            {
-              path: "subCategory",
-              select: ["_id", "title"],
-              populate: [{ path: "category", select: ["_id", "title"] }],
-            },
-          ],
+          keys: ["_id", "firstName", "lastName", "email"],
+          search: { allowedFields: ["firstName", "lastName", "email"] },
+          filter: { allowedFields: ["email"] },
         },
-
-        getById: {
-          // ✅ Only these fields will be returned in GET /product/:id
-          keys: ["_id", "title", "description", "price", "subCategory"],
-
-          // 🔗 Nested populate same as `get`
-          populate: [
-            {
-              path: "subCategory",
-              select: ["_id", "title"],
-              populate: [{ path: "category", select: ["_id", "title"] }],
-            },
-          ],
-        },
+        getById: { keys: ["_id", "firstName", "lastName", "email"] },
       },
     },
   ],
 });
 
-app.use(apiRouter);
-
-app.listen(3000, () => {
-  console.log("Server running at http://localhost:3000");
-});
+app.use(api);
+await mongoose.connect(process.env.MONGODB_URI!);
+app.listen(3000);
 ```
 
----
+## Generated routes
 
-## 🛠 Features
+For a model configured with `prefix: "/api/v1"` and `path: "users"`:
 
-### 1. Add or Update API (`POST /:model`)
+| Method | Route | Behavior |
+| --- | --- | --- |
+| `POST` | `/api/v1/users` | Creates a document, or updates it when the body contains `_id`. |
+| `POST` | `/api/v1/users/bulk` | Inserts a non-empty array of documents. |
+| `GET` | `/api/v1/users` | Returns all matching documents. |
+| `GET` | `/api/v1/users/:id` | Returns one document by MongoDB id. |
+| `DELETE` | `/api/v1/users/:id` | Deletes one document by MongoDB id. |
 
-- Merges create and update logic into a single endpoint.
-- If the request body contains `_id`, it triggers an update; otherwise, a new record is created.
-- Automatically checks `primaryKey` uniqueness during creation.
-- During update, it ignores the current document when checking for duplicates.
+All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. Joi validation converts values and strips unknown fields.
 
-### 2. Joi Validation
+## List query parameters
 
-- Supports request body validation using Joi schemas for `POST` operations.
-- Only one validation error message is returned per request to enhance clarity.
-- Validation schemas are customizable per model.
+`GET` list routes support the following parameters.
 
-### 3. Primary Key Uniqueness
+| Parameter | Example | Notes |
+| --- | --- | --- |
+| `search` | `?search=ada` | Requires a configured searchable field. |
+| `searchFields` | `?searchFields=firstName,lastName` | Restricted to `search.allowedFields` when provided. |
+| `caseSensitive` | `?caseSensitive=true` | Search is case-insensitive by default. |
+| `filter` | `?filter[email]=ada@example.com` | Only configured `filter.allowedFields` are used. |
+| Range filter | `?filter[age][gte]=18` | Supports `gte`, `lte`, `gt`, and `lt`. |
+| Array filter | `?filter[role][]=admin&filter[role][]=editor` | Produces an `$in` filter. |
+| `sort` | `?sort=-createdAt,lastName` | Prefix a field with `-` for descending order. |
+| `limit` and `page` | `?limit=20&page=2` | Pagination applies only when both are positive integers. |
 
-- Define a `primaryKey` (e.g. `email`, `username`) to enforce uniqueness on creation.
-- If a duplicate is found, the API returns a descriptive error.
+When pagination is active, the response data contains the pluralized model-name key and `pagination` metadata.
 
-### 4. Custom Middlewares
+## Configuration
 
-- Use the `middleWares` array to inject custom Express middlewares into the `POST` route.
-- Enables features like authentication, authorization, logging, etc.
+See [the configuration reference](docs/configuration.md) for the supported options and [the API behavior reference](docs/api-behavior.md) for response and edge-case details. Contributors should start with [the development guide](docs/development.md).
 
-### 5. Field Filtering (Deprecated)
+## Notes
 
-- ⚠️ `getKeys` and `getByIdKeys` are deprecated.
-- Use `settings.get.keys` to select fields in `GET /:model`.
-- Use `settings.getById.keys` to select fields in `GET /:model/:id`.
-- This improves flexibility and aligns with modern structured configurations.
+- `getKeys` and `getByIdKeys` remain supported for compatibility, but prefer `settings.get.keys` and `settings.getById.keys`.
+- `primaryKey` performs an application-level duplicate check. Add a unique index to the Mongoose schema as the database-level guarantee.
+- Search terms are used as regular-expression patterns. Restrict access and input length as appropriate for your application.
 
-### 6. CRUD Endpoints (Auto-generated)
+## License
 
-| Method   | Endpoint            | Description           |
-| -------- | ------------------- | --------------------- |
-| `POST`   | `/api/v1/user`      | Create or Update User |
-| `POST`   | `/api/v1/user/bulk` | Bulk Insert Users     |
-| `GET`    | `/api/v1/user`      | Fetch all Users       |
-| `GET`    | `/api/v1/user/:id`  | Fetch User by ID      |
-| `DELETE` | `/api/v1/user/:id`  | Delete User by ID     |
-
----
-
-### 7. Population Support
-
-- Use `settings.get.populate` and `settings.getById.populate` to populate referenced fields.
-- Each populate config accepts a `path` and optional `select` array for nested or targeted population.
-
-```ts
-settings: {
-  get: {
-    populate: [
-      { path: "department", select: ["_id", "title"] }
-    ]
-  },
-  getById: {
-    populate: [
-      {
-        path: "department",
-        select: ["_id", "title"] ,
-        populate: [
-          {
-            path: "item",
-            selected: ["_id", "title"]
-          }
-         ],
-      }
-    ]
-  }
-}
-```
-
-### 8. Search Support
-
-- ✅ Use `settings.get.search` to enable keyword-based searching on specific fields.
-- 🔍 Accepts query parameters like `search`, `searchFields`, and `caseSensitive`.
-- 🧩 Only fields defined in `allowedFields` will be considered for searching.
-- 🛑 If `disabled: true`, searching will be turned off for that model.
-- 🌐 Falls back to all allowed fields if `searchFields` param is not provided.
-
-**Example Setting:**
-
-```ts
-settings: {
-  get: {
-    search: {
-      disabled: false,
-      allowedFields: ["title", "description", "email"]
-    }
-  }
-}
-```
-
-**Sample Request:**
-
-```http
-GET /api/v1/user?search=mascara&searchFields=title,description&caseSensitive=false
-```
-
-**Behavior:**
-
-- Builds a `$or` regex search query for all specified fields.
-- If no valid fields are provided or allowed → search is skipped.
-
-### 9. Sorting, Pagination & Filtering (Built-in)
-
-Sorting, pagination, and filtering are first-class citizens in `maggie-api`, available out of the box for all models.
-
-#
-
-#### 🔀 Sorting
-
-- Pass a `sort` query param to define sort order:
-
-  ```http
-  ?sort=-createdAt,name
-  ```
-
-- Use a hyphen (`-`) prefix for descending order.
-- Multiple fields can be sorted in sequence.
-- Sorting is always enabled — no extra config needed.
-
-#
-
-#### 📄 Pagination
-
-- Supports standard pagination via `limit` and `page` query parameters:
-
-  ```http
-  ?limit=10&page=2
-  ```
-
-- Only applied when **both** parameters are valid positive integers.
-- Automatically returns metadata:
-
-  ```json
-  {
-    "users": [...],
-    "pagination": {
-      "total": 100,
-      "page": 2,
-      "limit": 10,
-      "totalPages": 10
-    }
-  }
-  ```
-
-- If not provided, returns the full result set without pagination.
-
-#### 📌 Example:
-
-```http
-GET /api/v1/product?filter[price][gte]=500&sort=-createdAt&limit=10&page=1
-```
-
-> ⚠️ Sorting and pagination are always enabled by default. Filtering requires configuring `allowedFields` to avoid accidental or insecure filtering.
-
-This makes it easy to power powerful, customizable tables and dashboards with minimal backend configuration.
-
----
-
-### 10. Filter Support
-
-`maggie-api` allows powerful and flexible filtering on API endpoints using structured query parameters.
-
-#### 🔧 Key Features:
-
-- Declarative control over filterable fields via `settings.get.filter.allowedFields`
-- Automatically transforms nested filters into MongoDB-compatible queries
-- Supports value types: primitives, arrays, and range operators
-
-#### 🔤 Supported Operators:
-
-| Operator | Usage                    | Translates To              |
-| -------- | ------------------------ | -------------------------- |
-| eq       | `filter[status]=active`  | `{ status: "active" }`     |
-| in       | `filter[tags][]=a&[]=b`  | `{ tags: { $in: [...] } }` |
-| gte      | `filter[price][gte]=100` | `{ price: { $gte: 100 } }` |
-| lte      | `filter[price][lte]=500` | `{ price: { $lte: 500 } }` |
-| gt, lt   | Similar usage            | `$gt`, `$lt`               |
-
-#### 💡 Behavior:
-
-- If a filter field is not included in `allowedFields`, it will be silently ignored.
-- Case-sensitive by default (you may use search for regex-based keyword lookups).
-- Compatible with MongoDB query syntax for advanced filtering.
-
-#### 🧪 Example Request:
-
-```http
-GET /api/v1/user?filter[role]=admin&filter[age][gte]=18
-```
-
-#### ⚠️ Important:
-
-- Always whitelist filterable fields to avoid misuse or performance hits
-- For flexible keyword matching across multiple fields, use the `search` config instead
-
-This filtering system is perfect for admin dashboards, search filters, and dynamic list views.
-
----
-
-## 📡 Sample cURL Commands
-
-### ➕ Add a User
-
-```bash
-curl -X POST http://localhost:3000/api/v1/user \
--H "Content-Type: application/json" \
--d '{"firstName":"Alice","lastName":"Doe","email":"alice@example.com"}'
-```
-
-### ✏️ Update a User
-
-```bash
-curl -X POST http://localhost:3000/api/v1/user \
--H "Content-Type: application/json" \
--d '{"_id":"665c8d1234567890","firstName":"Alicia","email":"alice@example.com"}'
-```
-
-### 📄 Get All Users
-
-```bash
-curl http://localhost:3000/api/v1/user
-```
-
-### 🔍 Get User by ID
-
-```bash
-curl http://localhost:3000/api/v1/user/665c8d1234567890
-```
-
-### ❌ Delete User by ID
-
-```bash
-curl -X DELETE http://localhost:3000/api/v1/user/665c8d1234567890
-```
-
-### 🚚 Bulk Insert Users
-
-```bash
-curl -X POST http://localhost:3000/api/v1/user/bulk \
--H "Content-Type: application/json" \
--d '[
-  {"firstName":"Bob","lastName":"Smith","email":"bob@example.com"},
-  {"firstName":"Carol","lastName":"Jones","email":"carol@example.com"}
-]'
-```
-
----
-
-## ✅ Standard JSON Response Format
-
-`maggie-api` follows a consistent, frontend-friendly response structure for all CRUD operations.
-
-### 🟢 On Success
-
-**Create:**
-
-```json
-{
-  "success": true,
-  "statusCode": 201,
-  "message": "User created successfully",
-  "data": {
-    "_id": "665c8d1234567890",
-    "firstName": "Alice",
-    "email": "alice@example.com"
-  }
-}
-```
-
-**Update:**
-
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "message": "User updated successfully",
-  "data": {
-    "_id": "665c8d1234567890",
-    "firstName": "Alicia"
-  }
-}
-```
-
-**Get All (with optional pagination):**
-
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "message": "Users fetched successfully",
-  "data": {
-    "users": [...],
-    "pagination": {
-      "total": 100,
-      "page": 2,
-      "limit": 10,
-      "totalPages": 10
-    }
-  }
-}
-```
-
-**Get by ID:**
-
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "message": "User fetched successfully",
-  "data": {
-    "_id": "665c8d1234567890",
-    "firstName": "Alice"
-  }
-}
-```
-
-**Delete:**
-
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "message": "User deleted successfully",
-  "data": {
-    "_id": "665c8d1234567890"
-  }
-}
-```
-
-**Bulk Insert:**
-
-```json
-{
-  "success": true,
-  "statusCode": 201,
-  "message": "3 Users created successfully",
-  "data": [{}, {}, {}]
-}
-```
-
----
-
-### 🔴 On Errors
-
-**Validation Error:**
-
-```json
-{
-  "success": false,
-  "statusCode": 400,
-  "message": "Validation error",
-  "error": "\"email\" is required"
-}
-```
-
-**Duplicate Primary Key (Create or Bulk Insert):**
-
-```json
-{
-  "success": false,
-  "statusCode": 409,
-  "message": "User with this email already exists",
-  "data": null
-}
-```
-
-**Document Not Found (Update or GetById):**
-
-```json
-{
-  "success": false,
-  "statusCode": 404,
-  "message": "User not found",
-  "data": null
-}
-```
-
-**Invalid Request Format (e.g. Bulk Insert with non-array):**
-
-```json
-{
-  "success": false,
-  "statusCode": 400,
-  "message": "Request body must be a non-empty array of documents",
-  "data": null
-}
-```
-
-**Server Error:**
-
-```json
-{
-  "success": false,
-  "statusCode": 500,
-  "message": "Failed to process User",
-  "data": null
-}
-```
-
----
-
-## 📂 Example Project Structure
-
-```
-your-app/
-├── models/
-│   └── User.ts
-├── routes/
-│   └── index.ts
-├── utils/
-│   └── validateBody.ts
-├── app.ts
-└── ...
-```
-
----
-
-## 👏 Contributing
-
-Want to contribute or enhance? PRs are welcome!
-
-- Add new features like PATCH support, role-based auth, etc.
-- Improve test coverage
-- Bug fixes
-
----
-
-## 📢 Final Words
-
-Save hours of boilerplate setup. Focus on your app logic.
-
-Let `maggie-api` handle the API plumbing. 🚀
+Apache-2.0. See [license](license).
