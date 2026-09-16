@@ -53,7 +53,9 @@ export const getAll = async (
               rangeQuery[`$${op}`] = val;
             }
           }
-          filterConditions[field] = rangeQuery;
+          if (Object.keys(rangeQuery).length > 0) {
+            filterConditions[field] = rangeQuery;
+          }
         } else if (Array.isArray(value)) {
           filterConditions[field] = { $in: value };
         } else {
@@ -136,10 +138,11 @@ export const getAll = async (
     let results;
     let pagination: any = null;
 
-    const limit = parseInt(queryParams.limit as string);
-    const page = parseInt(queryParams.page as string);
+    const limit = Number(queryParams.limit);
+    const page = Number(queryParams.page);
 
-    const isPaginate = !isNaN(limit) && limit > 0 && !isNaN(page) && page > 0;
+    const isPaginate =
+      Number.isInteger(limit) && limit > 0 && Number.isInteger(page) && page > 0;
 
     if (isPaginate) {
       const skip = (page - 1) * limit;
