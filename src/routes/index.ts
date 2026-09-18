@@ -1,17 +1,35 @@
-import { Router, RequestHandler } from "express";
-import { createController } from "../controllers";
-import { validateBody } from "../utils/validateBody";
+import { randomUUID } from "crypto";
+import { Request, RequestHandler, Router } from "express";
 import Joi from "joi";
+import { createController } from "../controllers";
 import { ISetting, MaggiePayload } from "../utils/interface";
+import { validateBody } from "../utils/validateBody";
 
-const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
+const asHandler =
+  (handler: (req: Request, res: any) => Promise<unknown>): RequestHandler =>
+  async (req, res) => {
+    await handler(req, res);
+  };
+
+const createMaggie = ({
+  prefix,
+  models,
+  requestId,
+  logger,
+}: MaggiePayload): Router => {
   const router = Router();
-
+  router.use((req, res, next) => {
+    const id = requestId?.(req) || req.header("x-request-id") || randomUUID();
+    (req as Request & { maggieRequestId?: string }).maggieRequestId = id;
+    res.setHeader("x-request-id", id);
+    next();
+  });
   models.forEach(
     ({
       model,
       path,
       validationSchema,
+      updateValidationSchema,
       primaryKey,
       middleWares = [],
       getKeys = [],
@@ -24,30 +42,47 @@ const createMaggie = ({ prefix, models }: MaggiePayload): Router => {
         primaryKey,
         ...settings,
       };
-
-      const controller = createController(model, settingsObj);
+      const controller = createController(model, settingsObj, logger);
       const subRouter = Router();
-
-      const middlewareStack: RequestHandler[] = [...middleWares];
-      const bulkMiddlewareStack: RequestHandler[] = [...middleWares];
-
+      const createMiddleware: RequestHandler[] = [...middleWares];
+      const updateMiddleware: RequestHandler[] = [...middleWares];
+      const bulkMiddleware: RequestHandler[] = [...middleWares];
       if (validationSchema) {
-        middlewareStack.push(validateBody(validationSchema));
-        const bulkValidationSchema = Joi.array().items(validationSchema);
-        bulkMiddlewareStack.push(validateBody(bulkValidationSchema));
+        createMiddleware.push(validateBody(validationSchema));
+        bulkMiddleware.push(validateBody(Joi.array().items(validationSchema)));
       }
-
-      subRouter.post("/", ...middlewareStack, controller.addOrUpdate);
-      subRouter.post("/bulk", ...bulkMiddlewareStack, controller.insertMany);
-      subRouter.delete("/:id", ...middleWares, controller.remove);
-      subRouter.get("/", ...middleWares, controller.getAll);
-      subRouter.get("/:id", ...middleWares, controller.getById);
-
+      if (updateValidationSchema)
+        updateMiddleware.push(validateBody(updateValidationSchema));
+      else if (validationSchema)
+        updateMiddleware.push(
+          validateBody(
+            validationSchema.fork(
+              Object.keys(validationSchema.describe().keys || {}),
+              (field) => field.optional(),
+            ),
+          ),
+        );
+      subRouter.post(
+        "/",
+        ...createMiddleware,
+        asHandler(controller.addOrUpdate),
+      );
+      subRouter.post(
+        "/bulk",
+        ...bulkMiddleware,
+        asHandler(controller.insertMany),
+      );
+      subRouter.patch(
+        "/:id",
+        ...updateMiddleware,
+        asHandler(controller.update),
+      );
+      subRouter.delete("/:id", ...middleWares, asHandler(controller.remove));
+      subRouter.get("/", ...middleWares, asHandler(controller.getAll));
+      subRouter.get("/:id", ...middleWares, asHandler(controller.getById));
       router.use(`${prefix}/${path}`, subRouter);
-    }
+    },
   );
-
   return router;
 };
-
 export default createMaggie;

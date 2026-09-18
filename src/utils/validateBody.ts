@@ -1,24 +1,29 @@
-import { Request, Response, NextFunction } from "express";
+import { RequestHandler } from "express";
 import { Schema } from "joi";
-
-export const validateBody = (schema: Schema): any => {
-  return (req: Request, res: Response, next: NextFunction) => {
+import { sendError } from "./errors";
+export const validateBody =
+  (schema: Schema): RequestHandler =>
+  (req, res, next) => {
     const { error, value } = schema.validate(req.body, {
-      abortEarly: false, // collect all errors
-      stripUnknown: true, // remove unknown keys
-      convert: true, // apply defaults and type conversions
+      abortEarly: false,
+      stripUnknown: true,
+      convert: true,
     });
-
     if (error) {
-      return res.status(400).json({
-        success: false,
-        statusCode: 400,
-        message: "Validation error",
-        error: error.details.map((d) => d.message).join(", "),
-      });
+      sendError(
+        req,
+        res,
+        400,
+        "VALIDATION_ERROR",
+        "Validation error",
+        error.details.map((detail) => ({
+          message: detail.message,
+          path: detail.path,
+          type: detail.type,
+        })),
+      );
+      return;
     }
-
-    req.body = value; // assign validated + defaulted data
+    req.body = value;
     next();
   };
-};
