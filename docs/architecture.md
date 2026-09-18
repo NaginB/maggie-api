@@ -37,4 +37,4 @@ consumer application
 - Change query semantics in `src/services/index.ts`; update the API behavior document and README query table in the same change.
 - Change public configuration in `src/utils/interface.ts`, then update `configuration.md` and export types deliberately from `src/index.ts` if consumers need them.
 
-The repository currently has no automated test suite. Add coverage before changing query parsing, validation, or response contracts.
+The repository has Vitest unit tests and MongoDB Memory Server integration tests. Add or update coverage before changing query parsing, validation, or response contracts.

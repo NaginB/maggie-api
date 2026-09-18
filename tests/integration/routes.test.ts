@@ -14,6 +14,18 @@ const schema = new Schema({
   active: Boolean,
 });
 const User = mongoose.model("Person", schema);
+const PatchOnly = mongoose.model(
+  "PatchOnly",
+  new Schema({ name: { type: String, required: true } }),
+);
+const UniqueOnly = mongoose.model(
+  "UniqueOnly",
+  new Schema({ email: { type: String, unique: true, required: true } }),
+);
+const NoContent = mongoose.model(
+  "NoContent",
+  new Schema({ name: { type: String, required: true } }),
+);
 const app = express();
 app.use(express.json());
 app.use(
@@ -53,6 +65,24 @@ app.use(
     ],
   }),
 );
+const patchOnlyApp = express();
+patchOnlyApp.use(express.json());
+patchOnlyApp.use(
+  createMaggie({
+    prefix: "/api",
+    models: [
+      {
+        model: PatchOnly,
+        path: "patch-only",
+        updateValidationSchema: Joi.object({
+          name: Joi.string().min(3).required(),
+        }),
+      },
+      { model: UniqueOnly, path: "unique-only" },
+      { model: NoContent, path: "no-content", settings: { deleteStatus: 204 } },
+    ],
+  }),
+);
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
@@ -73,12 +103,17 @@ describe("generated routes", () => {
     expect(created.headers["x-request-id"]).toBe("test-request");
     const id = created.body.data._id;
     expect((await request(app).get(`/api/people/${id}`)).status).toBe(200);
+    const legacyUpdated = await request(app)
+      .post("/api/people")
+      .send({ _id: id, name: "Ada Byron", email: "ada@example.com" });
+    expect(legacyUpdated.status).toBe(200);
     const patched = await request(app)
       .patch(`/api/people/${id}`)
       .send({ name: "Ada Lovelace" });
     expect(patched.status).toBe(200);
     expect(patched.body.data.name).toBe("Ada Lovelace");
     expect((await request(app).delete(`/api/people/${id}`)).status).toBe(200);
+    expect((await request(app).delete(`/api/people/${id}`)).status).toBe(404);
     const missing = await request(app).get(`/api/people/${id}`);
     expect(missing.status).toBe(404);
     expect(missing.body.code).toBe("NOT_FOUND");
@@ -130,5 +165,45 @@ describe("generated routes", () => {
       .send([{ name: "A" }, { email: "b@x.com" }]);
     expect(invalid.status).toBe(400);
     expect(invalid.body.details.length).toBeGreaterThan(1);
+  });
+  it("rejects primary-key conflicts in bulk requests and the database", async () => {
+    const duplicateInRequest = await request(app)
+      .post("/api/people/bulk")
+      .send([
+        { name: "A", email: "same@example.com" },
+        { name: "B", email: "same@example.com" },
+      ]);
+    expect(duplicateInRequest.status).toBe(409);
+    expect(duplicateInRequest.body.code).toBe("CONFLICT");
+
+    await User.create({ name: "Existing", email: "existing@example.com" });
+    const duplicateInDatabase = await request(app)
+      .post("/api/people/bulk")
+      .send([{ name: "Other", email: "existing@example.com" }]);
+    expect(duplicateInDatabase.status).toBe(409);
+    expect(duplicateInDatabase.body.code).toBe("CONFLICT");
+  });
+  it("applies updateValidationSchema without a create validationSchema", async () => {
+    const created = await PatchOnly.create({ name: "Valid" });
+    const invalid = await request(patchOnlyApp)
+      .patch(`/api/patch-only/${created.id}`)
+      .send({ name: "x" });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.code).toBe("VALIDATION_ERROR");
+  });
+  it("normalizes database conflicts and supports 204 deletes", async () => {
+    await UniqueOnly.create({ email: "taken@example.com" });
+    const conflict = await request(patchOnlyApp)
+      .post("/api/unique-only")
+      .send({ email: "taken@example.com" });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.code).toBe("CONFLICT");
+
+    const created = await NoContent.create({ name: "Disposable" });
+    const deleted = await request(patchOnlyApp).delete(
+      `/api/no-content/${created.id}`,
+    );
+    expect(deleted.status).toBe(204);
+    expect(deleted.text).toBe("");
   });
 });

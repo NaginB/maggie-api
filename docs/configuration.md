@@ -4,14 +4,14 @@
 
 ## Model configuration
 
-| Option                   | Description                                                            |
-| ------------------------ | ---------------------------------------------------------------------- |
-| `model`, `path`          | Required Mongoose model and route segment.                             |
-| `validationSchema`       | Joi schema for create and bulk. PATCH uses an optionalized form of it. |
-| `updateValidationSchema` | Optional Joi schema specifically for PATCH.                            |
-| `primaryKey`             | Pre-flight duplicate check; pair it with a Mongoose unique index.      |
-| `middleWares`            | Express middleware for every generated route.                          |
-| `getKeys`, `getByIdKeys` | Deprecated selection aliases. `settings` takes precedence.             |
+| Option                   | Description                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `model`, `path`          | Required Mongoose model and route segment.                                                |
+| `validationSchema`       | Joi schema for create and bulk. PATCH uses an optionalized form of it.                    |
+| `updateValidationSchema` | Optional Joi schema specifically for PATCH; it works independently of `validationSchema`. |
+| `primaryKey`             | Pre-flight duplicate check; pair it with a Mongoose unique index.                         |
+| `middleWares`            | Express middleware for every generated route.                                             |
+| `getKeys`, `getByIdKeys` | Deprecated selection aliases. `settings` takes precedence.                                |
 
 ```ts
 settings: {

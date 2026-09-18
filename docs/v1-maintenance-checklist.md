@@ -33,7 +33,7 @@ This checklist records defects and maintenance work identified in the current v1
 
 ## Engineering checklist
 
-- [x] Add integration tests with MongoDB Memory Server for all routes and query combinations.
+- [x] Add MongoDB Memory Server integration tests for documented routes and query constraints.
 - [x] Add unit tests for `singularToPlural`, query parsing, pagination validation, and Joi middleware.
 - [x] Add CI to run install, build, tests, linting, and package-content checks on supported Node versions.
 - [x] Add ESLint and Prettier, then apply a consistent style to source and documentation.

@@ -4,14 +4,11 @@ This roadmap focuses on making `maggie-api` safer to expose publicly, easier to 
 
 ## V2 launch scope
 
-- [ ] **Add a test suite.** Cover every generated route with an in-memory MongoDB integration test, including validation, duplicate keys, invalid IDs, filtering, search, sorting, pagination, population, and middleware order.
-- [ ] **Adopt standard CRUD verbs.** Keep the existing `POST /:resource` upsert route only as an opt-in compatibility mode; introduce `POST` for create, `PATCH /:id` for update, and optionally `PUT /:id` for replacement.
-- [ ] **Make delete semantics explicit.** Return `404` when a document does not exist, and support configurable soft deletes (`deletedAt`, `deletedBy`) for models that need recoverability.
-- [ ] **Strengthen primary-key protection.** Require or document a schema-level unique index, detect duplicate values within bulk requests, and map MongoDB duplicate-key errors to a consistent `409` response.
-- [ ] **Create a configurable error contract.** Provide typed error codes such as `VALIDATION_ERROR`, `NOT_FOUND`, `CONFLICT`, and `INVALID_ID`, with one predictable error envelope across all routes.
-- [ ] **Harden query input.** Escape search text by default, add maximum query length and maximum page size, validate sort/filter field names, and reject malformed filters with a clear `400` instead of silently ignoring them when strict mode is enabled.
-- [ ] **Export the full public TypeScript API.** Export model settings, search, filter, population, and response interfaces from the package root so consumers can type their configuration without relying on inferred declarations.
-- [ ] **Publish a migration guide.** Document the v1 compatibility mode, breaking changes, response changes, and a step-by-step upgrade path.
+- [ ] **Add PUT replacement semantics.** Keep `POST` compatibility updates opt-in, retain PATCH for partial updates, and offer an explicit replacement route only with clear validation rules.
+- [ ] **Add configurable soft deletes.** Support `deletedAt` and `deletedBy` for models that require recoverability.
+- [ ] **Expand query expressiveness safely.** Add narrowly scoped operators and logical groups without weakening the current allow-lists.
+- [ ] **Increase integration coverage.** Add population, middleware-order, custom request-ID, and race-condition cases to the existing route matrix.
+- [ ] **Generate OpenAPI.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses.
 
 ## High-value post-launch features
 

@@ -50,16 +50,18 @@ const createMaggie = ({
       if (validationSchema) {
         createMiddleware.push(validateBody(validationSchema));
         bulkMiddleware.push(validateBody(Joi.array().items(validationSchema)));
+      }
+      if (updateValidationSchema)
+        updateMiddleware.push(validateBody(updateValidationSchema));
+      else if (validationSchema)
         updateMiddleware.push(
           validateBody(
-            updateValidationSchema ||
-              validationSchema.fork(
-                Object.keys(validationSchema.describe().keys || {}),
-                (field) => field.optional(),
-              ),
+            validationSchema.fork(
+              Object.keys(validationSchema.describe().keys || {}),
+              (field) => field.optional(),
+            ),
           ),
         );
-      }
       subRouter.post(
         "/",
         ...createMiddleware,

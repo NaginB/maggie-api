@@ -66,31 +66,31 @@ app.listen(3000);
 
 For a model configured with `prefix: "/api/v1"` and `path: "users"`:
 
-| Method   | Route                | Behavior                                                        |
-| -------- | -------------------- | --------------------------------------------------------------- |
+| Method   | Route                | Behavior                                                                                 |
+| -------- | -------------------- | ---------------------------------------------------------------------------------------- |
 | `POST`   | `/api/v1/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default). |
-| `POST`   | `/api/v1/users/bulk` | Inserts a non-empty array of documents.                         |
-| `PATCH`  | `/api/v1/users/:id`  | Partially updates one document.                                 |
-| `GET`    | `/api/v1/users`      | Returns all matching documents.                                 |
-| `GET`    | `/api/v1/users/:id`  | Returns one document by MongoDB id.                             |
-| `DELETE` | `/api/v1/users/:id`  | Deletes one document by MongoDB id.                             |
+| `POST`   | `/api/v1/users/bulk` | Inserts a non-empty array of documents.                                                  |
+| `PATCH`  | `/api/v1/users/:id`  | Partially updates one document.                                                          |
+| `GET`    | `/api/v1/users`      | Returns all matching documents.                                                          |
+| `GET`    | `/api/v1/users/:id`  | Returns one document by MongoDB id.                                                      |
+| `DELETE` | `/api/v1/users/:id`  | Deletes one document by MongoDB id.                                                      |
 
-All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. Joi validation converts values and strips unknown fields.
+All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. PATCH uses `updateValidationSchema` when supplied, otherwise an optionalized form of `validationSchema`. Joi validation converts values and strips unknown fields.
 
 ## List query parameters
 
 `GET` list routes support the following parameters.
 
-| Parameter          | Example                                       | Notes                                                                   |
-| ------------------ | --------------------------------------------- | ----------------------------------------------------------------------- |
-| `search`           | `?search=ada`                                 | Literal, length-limited search; requires a configured searchable field. |
-| `searchFields`     | `?searchFields=firstName,lastName`            | Restricted to `search.allowedFields` when provided.                     |
-| `caseSensitive`    | `?caseSensitive=true`                         | Search is case-insensitive by default.                                  |
-| `filter`           | `?filter[email]=ada@example.com`              | Requires `filter.fields` or `filter.allowedFields`; strict mode rejects unknown fields. |
-| Range filter       | `?filter[age][gte]=18`                        | Requires `age` to permit `gte`; supported range operators are `gte`, `lte`, `gt`, and `lt`. |
-| Array filter       | `?filter[email][]=a@example.com&filter[email][]=b@example.com` | Produces `$in` when the field permits `in`. |
-| `sort`             | `?sort=-createdAt,lastName`                   | Fields must be in `settings.get.sort.allowedFields`.                    |
-| `limit` and `page` | `?limit=20&page=2`                            | Positive integers; `limit` is capped by `maxLimit`.                     |
+| Parameter          | Example                                                        | Notes                                                                                       |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `search`           | `?search=ada`                                                  | Literal, length-limited search; requires a configured searchable field.                     |
+| `searchFields`     | `?searchFields=firstName,lastName`                             | Restricted to `search.allowedFields` when provided.                                         |
+| `caseSensitive`    | `?caseSensitive=true`                                          | Search is case-insensitive by default.                                                      |
+| `filter`           | `?filter[email]=ada@example.com`                               | Requires `filter.fields` or `filter.allowedFields`; strict mode rejects unknown fields.     |
+| Range filter       | `?filter[age][gte]=18`                                         | Requires `age` to permit `gte`; supported range operators are `gte`, `lte`, `gt`, and `lt`. |
+| Array filter       | `?filter[email][]=a@example.com&filter[email][]=b@example.com` | Produces `$in` when the field permits `in`.                                                 |
+| `sort`             | `?sort=-createdAt,lastName`                                    | Fields must be in `settings.get.sort.allowedFields`.                                        |
+| `limit` and `page` | `?limit=20&page=2`                                             | Positive integers; `limit` is capped by `maxLimit`.                                         |
 
 When pagination is active, the response data contains the configured `responseKey` (or the pluralized model name) and `pagination` metadata.
 

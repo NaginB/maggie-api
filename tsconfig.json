@@ -11,5 +11,6 @@
     "resolveJsonModule": true,
     "baseUrl": "./src"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/models", "src/testing.ts"]
 }
