@@ -1,211 +1,247 @@
-// src/services/index.ts
-import { Model } from "mongoose";
-import { ISetting } from "../utils/interface";
 import { Request } from "express";
+import { Model, Types } from "mongoose";
 import { parse } from "qs";
 import { URL } from "url";
-import { singularToPlural } from "../utils/common";
+import { escapeRegex, singularToPlural } from "../utils/common";
+import { HttpError } from "../utils/errors";
+import { FilterValueType, ISetting } from "../utils/interface";
 
-export const createDoc = async (model: Model<any>, data: any) => {
-  return await model.create(data);
+export const createDoc = (model: Model<any>, data: any) => model.create(data);
+export const updateDoc = (model: Model<any>, id: string, data: any) =>
+  model.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+export const deleteById = (model: Model<any>, id: string) =>
+  model.findByIdAndDelete(id);
+export const insertMany = (model: Model<any>, docs: any[]) =>
+  model.insertMany(docs);
+
+const castValue = (
+  value: unknown,
+  type: FilterValueType | undefined,
+  field: string,
+): unknown => {
+  if (!type || type === "string") return String(value);
+  if (type === "number") {
+    const result = Number(value);
+    if (!Number.isFinite(result))
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `Invalid number for filter field ${field}`,
+      );
+    return result;
+  }
+  if (type === "boolean") {
+    if (value !== "true" && value !== "false" && typeof value !== "boolean")
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `Invalid boolean for filter field ${field}`,
+      );
+    return value === true || value === "true";
+  }
+  if (type === "date") {
+    const result = new Date(String(value));
+    if (Number.isNaN(result.getTime()))
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `Invalid date for filter field ${field}`,
+      );
+    return result;
+  }
+  if (!Types.ObjectId.isValid(String(value)))
+    throw new HttpError(
+      400,
+      "QUERY_ERROR",
+      `Invalid ObjectId for filter field ${field}`,
+    );
+  return new Types.ObjectId(String(value));
 };
-
-export const updateDoc = async (model: Model<any>, data: any) => {
-  if (!data._id) throw new Error("Missing _id for update");
-  return await model.findByIdAndUpdate(data._id, data, { new: true });
-};
-
-export const deleteById = async (model: Model<any>, id: string) => {
-  return await model.findByIdAndDelete(id);
+export const parsePositiveInteger = (value: unknown): number | undefined => {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return undefined;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : undefined;
 };
 
 export const getAll = async (
   model: Model<any>,
   settings: ISetting,
-  req: Request
+  req: Request,
 ) => {
-  try {
-    let query = model.find();
-
-    // Use qs to parse nested query params like filter[price][gte]
-    const url = new URL(req.originalUrl, `http://${req.headers.host}`);
-    const queryParams = parse(url.searchParams.toString());
-
-    // 1️⃣ FIELD SELECTION
-    if (settings.getKeys?.length) {
-      query = query.select(settings.getKeys.join(" "));
-    }
-
-    // 2️⃣ FILTERING
-    const rawFilter = queryParams.filter as Record<string, any>;
-    const allowedFilterFields = settings.get?.filter?.allowedFields || [];
-
-    if (rawFilter && typeof rawFilter === "object") {
-      const filterConditions: Record<string, any> = {};
-
-      for (const [field, value] of Object.entries(rawFilter)) {
-        if (!allowedFilterFields.includes(field)) continue;
-
-        if (typeof value === "object" && !Array.isArray(value)) {
-          const rangeQuery: Record<string, any> = {};
-          for (const [op, val] of Object.entries(value)) {
-            if (["gte", "lte", "gt", "lt"].includes(op)) {
-              rangeQuery[`$${op}`] = val;
-            }
+  let query = model.find();
+  const url = new URL(
+    req.originalUrl,
+    `http://${req.headers.host || "localhost"}`,
+  );
+  const queryParams = parse(url.searchParams.toString());
+  if (settings.getKeys.length) query = query.select(settings.getKeys.join(" "));
+  const rawFilter = queryParams.filter;
+  const filterConfig = settings.get?.filter;
+  const configuredFields = filterConfig?.fields || {};
+  const allowedFields = new Set(
+    filterConfig?.allowedFields || Object.keys(configuredFields),
+  );
+  const conditions: Record<string, any> = {};
+  if (rawFilter && typeof rawFilter === "object" && !Array.isArray(rawFilter)) {
+    for (const [field, raw] of Object.entries(rawFilter)) {
+      if (!allowedFields.has(field)) {
+        if (filterConfig?.strict)
+          throw new HttpError(
+            400,
+            "QUERY_ERROR",
+            `Filter field ${field} is not allowed`,
+          );
+        continue;
+      }
+      const config = configuredFields[field];
+      const operators = new Set(
+        config?.operators || ["eq", "in", "gte", "lte", "gt", "lt"],
+      );
+      if (Array.isArray(raw)) {
+        if (!operators.has("in"))
+          throw new HttpError(
+            400,
+            "QUERY_ERROR",
+            `Operator in is not allowed for ${field}`,
+          );
+        conditions[field] = {
+          $in: raw.map((value) => castValue(value, config?.type, field)),
+        };
+      } else if (raw && typeof raw === "object") {
+        const range: Record<string, unknown> = {};
+        for (const [op, value] of Object.entries(raw)) {
+          if (
+            !["gte", "lte", "gt", "lt"].includes(op) ||
+            !operators.has(op as any)
+          ) {
+            if (filterConfig?.strict)
+              throw new HttpError(
+                400,
+                "QUERY_ERROR",
+                `Operator ${op} is not allowed for ${field}`,
+              );
+            continue;
           }
-          if (Object.keys(rangeQuery).length > 0) {
-            filterConditions[field] = rangeQuery;
-          }
-        } else if (Array.isArray(value)) {
-          filterConditions[field] = { $in: value };
-        } else {
-          filterConditions[field] = value;
+          range[`$${op}`] = castValue(value, config?.type, field);
         }
-      }
-
-      if (Object.keys(filterConditions).length > 0) {
-        query = query.find(filterConditions);
-      }
-    }
-
-    // 3️⃣ SEARCH
-    const searchKeyword = queryParams.search as string;
-    const caseSensitive = queryParams.caseSensitive === "true";
-    const searchFieldsFromQuery = (queryParams.searchFields as string)
-      ?.split(",")
-      .map((f) => f.trim());
-
-    const searchConfig = settings.get?.search;
-    const isSearchDisabled = searchConfig?.disabled === true;
-
-    if (
-      !isSearchDisabled &&
-      typeof searchKeyword === "string" &&
-      searchKeyword.trim()
-    ) {
-      let finalSearchFields: string[] = [];
-
-      if (searchFieldsFromQuery?.length) {
-        finalSearchFields = searchConfig?.allowedFields?.length
-          ? searchFieldsFromQuery.filter((field) =>
-              searchConfig.allowedFields!.includes(field)
-            )
-          : searchFieldsFromQuery;
-      }
-
-      if (!finalSearchFields.length && searchConfig?.allowedFields?.length) {
-        finalSearchFields = searchConfig.allowedFields;
-      }
-
-      if (finalSearchFields.length) {
-        const regex = new RegExp(searchKeyword, caseSensitive ? "" : "i");
-        const searchConditions = finalSearchFields.map((field) => ({
-          [field]: regex,
-        }));
-        query = query.find({ $or: searchConditions });
+        if (Object.keys(range).length) conditions[field] = range;
       } else {
-        console.warn("⚠️ Search skipped: No valid searchable fields found.");
+        if (!operators.has("eq"))
+          throw new HttpError(
+            400,
+            "QUERY_ERROR",
+            `Operator eq is not allowed for ${field}`,
+          );
+        conditions[field] = castValue(raw, config?.type, field);
       }
     }
-
-    // 4️⃣ POPULATE
-    if (settings.get?.populate?.length) {
-      for (const pop of settings.get.populate) {
-        query = query.populate(pop);
-      }
-    }
-
-    // 5️⃣ SORTING
-    const sortParam = queryParams.sort as string;
-
-    if (sortParam) {
-      const sortFields = sortParam
-        .split(",")
-        .map((field) => field.trim())
-        .filter((field) => field.length > 0)
-        .reduce((acc, field) => {
-          if (field.startsWith("-")) {
-            acc[field.slice(1)] = -1;
-          } else {
-            acc[field] = 1;
-          }
-          return acc;
-        }, {} as Record<string, 1 | -1>);
-
-      query = query.sort(sortFields);
-    }
-
-    let results;
-    let pagination: any = null;
-
-    const limit = Number(queryParams.limit);
-    const page = Number(queryParams.page);
-
-    const isPaginate =
-      Number.isInteger(limit) && limit > 0 && Number.isInteger(page) && page > 0;
-
-    if (isPaginate) {
-      const skip = (page - 1) * limit;
-      query = query.skip(skip).limit(limit);
-
-      const totalDocs = await model.countDocuments(query.getQuery());
-
-      results = await query.exec();
-      pagination = {
-        total: totalDocs,
-        page,
-        limit,
-        totalPages: Math.ceil(totalDocs / limit),
-      };
-    } else {
-      results = await query.exec();
-    }
-
-    const responseKeyName: string = singularToPlural(
-      model.modelName.toLowerCase()
-    );
-
-    return pagination
-      ? { [responseKeyName]: results, pagination }
-      : { [responseKeyName]: results };
-  } catch (error) {
-    console.error("Error in getAll:", error);
-    throw error;
   }
+  if (Object.keys(conditions).length) query = query.find(conditions);
+  const keyword = queryParams.search;
+  const searchConfig = settings.get?.search;
+  if (
+    searchConfig?.disabled !== true &&
+    typeof keyword === "string" &&
+    keyword.trim()
+  ) {
+    const maxLength = searchConfig?.maxLength ?? 100;
+    if (keyword.length > maxLength)
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `Search must not exceed ${maxLength} characters`,
+      );
+    const requested =
+      typeof queryParams.searchFields === "string"
+        ? queryParams.searchFields
+            .split(",")
+            .map((field) => field.trim())
+            .filter(Boolean)
+        : [];
+    const allowed = searchConfig?.allowedFields || [];
+    const fields = requested.length
+      ? requested.filter((field) => allowed.includes(field))
+      : allowed;
+    if (fields.length) {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(
+          searchConfig?.allowRegex ? keyword : escapeRegex(keyword),
+          queryParams.caseSensitive === "true" ? "" : "i",
+        );
+      } catch {
+        throw new HttpError(
+          400,
+          "QUERY_ERROR",
+          "Invalid search regular expression",
+        );
+      }
+      query = query.find({ $or: fields.map((field) => ({ [field]: regex })) });
+    }
+  }
+  for (const populate of settings.get?.populate || [])
+    query = query.populate(populate);
+  if (typeof queryParams.sort === "string" && queryParams.sort) {
+    const allowed = new Set(settings.get?.sort?.allowedFields || []);
+    const strict = settings.get?.sort?.strict !== false;
+    const sort: Record<string, 1 | -1> = {};
+    for (const token of queryParams.sort
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)) {
+      const field = token.startsWith("-") ? token.slice(1) : token;
+      if (!allowed.has(field)) {
+        if (strict)
+          throw new HttpError(
+            400,
+            "QUERY_ERROR",
+            `Sort field ${field} is not allowed`,
+          );
+        continue;
+      }
+      sort[field] = token.startsWith("-") ? -1 : 1;
+    }
+    if (Object.keys(sort).length) query = query.sort(sort);
+  }
+  const requestedLimit = parsePositiveInteger(queryParams.limit);
+  const page = parsePositiveInteger(queryParams.page);
+  const maxLimit = settings.get?.maxLimit ?? 100;
+  if (requestedLimit && requestedLimit > maxLimit)
+    throw new HttpError(
+      400,
+      "QUERY_ERROR",
+      `limit must not exceed ${maxLimit}`,
+    );
+  let pagination;
+  let results;
+  if (requestedLimit && page) {
+    const total = await model.countDocuments(query.getQuery());
+    results = await query
+      .skip((page - 1) * requestedLimit)
+      .limit(requestedLimit)
+      .exec();
+    pagination = {
+      total,
+      page,
+      limit: requestedLimit,
+      totalPages: Math.ceil(total / requestedLimit),
+    };
+  } else results = await query.exec();
+  const responseKey =
+    settings.responseKey || singularToPlural(model.modelName.toLowerCase());
+  return pagination
+    ? { [responseKey]: results, pagination }
+    : { [responseKey]: results };
 };
-
 export const getById = async (
   model: Model<any>,
   id: string,
-  settings: ISetting
+  settings: ISetting,
 ) => {
-  try {
-    let query = model.findById(id);
-
-    // Select specific fields
-    if (settings.getByIdKeys?.length) {
-      query = query.select(settings.getByIdKeys.join(" "));
-    }
-
-    // Populate fields if defined
-    if (settings.getById?.populate?.length) {
-      for (const pop of settings.getById.populate) {
-        query = query.populate(pop);
-      }
-    }
-
-    const result = await query.exec();
-    return result;
-  } catch (error) {
-    console.error("Error in getById:", error);
-    throw error;
-  }
-};
-
-// 🔹 insertMany service
-export const insertMany = async (model: Model<any>, docs: any[]) => {
-  if (!Array.isArray(docs)) {
-    throw new Error("insertMany expects an array of documents");
-  }
-  return await model.insertMany(docs);
+  let query = model.findById(id);
+  if (settings.getByIdKeys.length)
+    query = query.select(settings.getByIdKeys.join(" "));
+  for (const populate of settings.getById?.populate || [])
+    query = query.populate(populate);
+  return query.exec();
 };

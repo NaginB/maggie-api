@@ -1,55 +1,41 @@
 # Configuration reference
 
-`createMaggie` accepts one payload with a shared URL prefix and a list of model configurations.
-
-```ts
-createMaggie({
-  prefix: "/api/v1",
-  models: [/* model configurations */],
-});
-```
-
-## Top-level options
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `prefix` | `string` | Yes | URL prefix placed before every model path. |
-| `models` | array | Yes | Model route definitions. |
+`createMaggie({ prefix, models, requestId?, logger? })` creates one router. `requestId` can return an application request id; otherwise Maggie uses the incoming `x-request-id` or generates a UUID. `logger` receives structured unexpected-error events and replaces direct console logging.
 
 ## Model configuration
 
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `model` | Mongoose `Model` | Yes | The Mongoose model that backs the routes. |
-| `path` | `string` | Yes | Path segment appended to `prefix`. |
-| `validationSchema` | Joi object schema | No | Validates both single and bulk POST bodies. |
-| `primaryKey` | `string` | No | Field used for pre-write duplicate checks. |
-| `middleWares` | Express handlers | No | Middleware run on every generated route. |
-| `settings` | object | No | List and single-document read settings. |
-| `getKeys` | `string[]` | No | Deprecated alias for `settings.get.keys`. |
-| `getByIdKeys` | `string[]` | No | Deprecated alias for `settings.getById.keys`. |
-
-## `settings`
+| Option                   | Description                                                            |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `model`, `path`          | Required Mongoose model and route segment.                             |
+| `validationSchema`       | Joi schema for create and bulk. PATCH uses an optionalized form of it. |
+| `updateValidationSchema` | Optional Joi schema specifically for PATCH.                            |
+| `primaryKey`             | Pre-flight duplicate check; pair it with a Mongoose unique index.      |
+| `middleWares`            | Express middleware for every generated route.                          |
+| `getKeys`, `getByIdKeys` | Deprecated selection aliases. `settings` takes precedence.             |
 
 ```ts
 settings: {
+  responseKey: "members",
+  legacyPostUpdate: false,
+  deleteStatus: 204,
+  maxBulkSize: 50,
   get: {
-    keys: ["_id", "name"],
-    populate: [{ path: "owner", select: ["_id", "email"] }],
-    search: { disabled: false, allowedFields: ["name"] },
-    filter: { allowedFields: ["status", "price"] },
+    keys: ["_id", "name", "age"],
+    maxLimit: 50,
+    search: { allowedFields: ["name"], maxLength: 80, allowRegex: false },
+    filter: {
+      strict: true,
+      fields: {
+        age: { type: "number", operators: ["eq", "gte", "lte"] },
+        active: { type: "boolean", operators: ["eq"] },
+      },
+    },
+    sort: { allowedFields: ["name", "age"] },
   },
-  getById: {
-    keys: ["_id", "name", "owner"],
-    populate: [{ path: "owner", select: ["_id", "email"] }],
-  },
+  getById: { keys: ["_id", "name"] },
 }
 ```
 
-`get.keys` and `getById.keys` are passed to Mongoose as a space-separated projection. Each population entry accepts `path`, optional `select`, and optional nested `populate` entries.
+`filter.allowedFields` remains supported for simple string filters. Prefer `filter.fields` for explicit value types and operator restrictions. Supported types are `string`, `number`, `boolean`, `date`, and `objectId`; supported operators are `eq`, `in`, `gte`, `lte`, `gt`, and `lt`.
 
-Search is enabled unless `search.disabled` is exactly `true`, but it only produces a query when there are usable fields: those in `search.allowedFields`, or fields supplied through `searchFields` when no allow-list is configured. Filtering is disabled by default because it requires `filter.allowedFields`.
-
-### Compatibility precedence
-
-When both forms are supplied, `settings.get.keys` takes precedence over `getKeys`, and `settings.getById.keys` takes precedence over `getByIdKeys`.
+All public configuration and response interfaces are exported from the package root.

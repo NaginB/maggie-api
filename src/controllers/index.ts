@@ -1,215 +1,203 @@
 import { Request, Response } from "express";
+import { Model } from "mongoose";
 import {
   createDoc,
-  updateDoc,
   deleteById,
   getAll,
   getById,
   insertMany,
+  updateDoc,
 } from "../services";
-import { Model } from "mongoose";
-import { ControllerSettings } from "../utils/interface";
+import { handleError, sendError } from "../utils/errors";
+import { ControllerSettings, MaggieLogger } from "../utils/interface";
 
 export const createController = (
   model: Model<any>,
-  settings: ControllerSettings
+  settings: ControllerSettings,
+  logger?: MaggieLogger,
 ) => {
   const modelName = model.modelName;
-  const { primaryKey = "" } = settings;
+  const conflict = (req: Request, res: Response) =>
+    sendError(
+      req,
+      res,
+      409,
+      "CONFLICT",
+      `${modelName} with this ${settings.primaryKey} already exists`,
+    );
+  const checkPrimaryKey = async (
+    req: Request,
+    res: Response,
+    body: any,
+    id?: string,
+  ): Promise<boolean> => {
+    const key = settings.primaryKey;
+    if (!key || body[key] === undefined || body[key] === null) return false;
+    const existing = await model.findOne({ [key]: body[key] });
+    if (existing && (!id || String(existing._id) !== id)) {
+      conflict(req, res);
+      return true;
+    }
+    return false;
+  };
+  const update = async (req: Request, res: Response, id: string, body: any) => {
+    if (await checkPrimaryKey(req, res, body, id)) return;
+    const result = await updateDoc(model, id, body);
+    if (!result)
+      return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
+    return res.status(200).json({
+      success: true,
+      statusCode: 200,
+      message: `${modelName} updated successfully`,
+      data: result,
+    });
+  };
   return {
-    addOrUpdate: async (req: Request, res: Response): Promise<any> => {
+    addOrUpdate: async (req: Request, res: Response) => {
       try {
-        const { _id, ...rest } = req.body;
-        let result;
-
-        // ✅ Check uniqueness for primaryKey (only if provided)
-        if (primaryKey && rest[primaryKey]) {
-          const existing = await model.findOne({
-            [primaryKey]: rest[primaryKey],
-          });
-
-          if (_id) {
-            // ⚠️ Prevent updating to a primary key that exists on another doc
-            if (existing && existing._id.toString() !== _id) {
-              return res.status(409).json({
-                success: false,
-                statusCode: 409,
-                message: `${modelName} with this ${primaryKey} already exists`,
-                data: null,
-              });
-            }
-          } else {
-            // ⚠️ Prevent creating if primary key already exists
-            if (existing) {
-              return res.status(409).json({
-                success: false,
-                statusCode: 409,
-                message: `${modelName} with this ${primaryKey} already exists`,
-                data: null,
-              });
-            }
-          }
-        }
-
+        const { _id, ...body } = req.body;
         if (_id) {
-          result = await updateDoc(model, { _id, ...rest });
-
-          if (!result) {
-            return res.status(404).json({
-              success: false,
-              statusCode: 404,
-              message: `${modelName} not found`,
-              data: null,
-            });
-          }
-
-          return res.status(200).json({
-            success: true,
-            statusCode: 200,
-            message: `${modelName} updated successfully`,
-            data: result,
-          });
+          if (settings.legacyPostUpdate === false)
+            return sendError(
+              req,
+              res,
+              400,
+              "VALIDATION_ERROR",
+              "POST updates are disabled; use PATCH /:id",
+            );
+          return await update(req, res, String(_id), body);
         }
-
-        result = await createDoc(model, rest);
-
+        if (await checkPrimaryKey(req, res, body)) return;
+        const result = await createDoc(model, body);
         return res.status(201).json({
           success: true,
           statusCode: 201,
           message: `${modelName} created successfully`,
           data: result,
         });
-      } catch (error: any) {
-        console.log(error);
-        return res.status(500).json({
-          success: false,
-          statusCode: 500,
-          message: error.message || `Failed to process ${modelName}`,
-          data: null,
-        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
       }
     },
-
-    remove: async (req: Request, res: Response): Promise<any> => {
+    update: async (req: Request, res: Response) => {
+      try {
+        return await update(req, res, req.params.id, req.body);
+      } catch (error) {
+        return handleError(req, res, error, logger);
+      }
+    },
+    remove: async (req: Request, res: Response) => {
       try {
         const result = await deleteById(model, req.params.id);
-
-        if (!result) {
-          return res.status(404).json({
-            success: false,
-            statusCode: 404,
-            message: `${modelName} not found`,
-            data: null,
-          });
-        }
-
+        if (!result)
+          return sendError(
+            req,
+            res,
+            404,
+            "NOT_FOUND",
+            `${modelName} not found`,
+          );
+        if (settings.deleteStatus === 204) return res.status(204).send();
         return res.status(200).json({
           success: true,
           statusCode: 200,
           message: `${modelName} deleted successfully`,
           data: result,
         });
-      } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          statusCode: 400,
-          message: error.message,
-          data: null,
-        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
       }
     },
-
-    getAll: async (req: Request, res: Response): Promise<any> => {
+    getAll: async (req: Request, res: Response) => {
       try {
         const result = await getAll(model, settings, req);
-
         return res.status(200).json({
           success: true,
           statusCode: 200,
           message: `${modelName}s fetched successfully`,
           data: result,
         });
-      } catch (error: any) {
-        return res.status(500).json({
-          success: false,
-          statusCode: 500,
-          message: error.message,
-          data: null,
-        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
       }
     },
-
-    getById: async (req: Request, res: Response): Promise<any> => {
+    getById: async (req: Request, res: Response) => {
       try {
         const result = await getById(model, req.params.id, settings);
-
-        if (!result) {
-          return res.status(404).json({
-            success: false,
-            statusCode: 404,
-            message: `${modelName} not found`,
-            data: null,
-          });
-        }
-
-        res.status(200).json({
+        if (!result)
+          return sendError(
+            req,
+            res,
+            404,
+            "NOT_FOUND",
+            `${modelName} not found`,
+          );
+        return res.status(200).json({
           success: true,
           statusCode: 200,
           message: `${modelName} fetched successfully`,
           data: result,
         });
-      } catch (error: any) {
-        res.status(404).json({
-          success: false,
-          statusCode: 404,
-          message: error.message,
-          data: null,
-        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
       }
     },
-    insertMany: async (req: Request, res: Response): Promise<any> => {
+    insertMany: async (req: Request, res: Response) => {
       try {
         const docs = req.body;
-
-        if (!Array.isArray(docs) || docs.length === 0) {
-          return res.status(400).json({
-            success: false,
-            statusCode: 400,
-            message: "Request body must be a non-empty array of documents",
-            data: null,
-          });
-        }
-
-        //  Check primary key uniqueness
-        if (primaryKey) {
-          const values = docs.map((doc) => doc[primaryKey]).filter(Boolean);
-          const duplicateValues = values.filter(
-            (value, index) => values.indexOf(value) !== index
+        if (!Array.isArray(docs) || !docs.length)
+          return sendError(
+            req,
+            res,
+            400,
+            "VALIDATION_ERROR",
+            "Request body must be a non-empty array of documents",
           );
-
-          if (duplicateValues.length > 0) {
-            return res.status(409).json({
-              success: false,
-              statusCode: 409,
-              message: `Duplicate ${primaryKey} values in request body`,
-              error: [...new Set(duplicateValues)],
-            });
-          }
-
-          const existing = await model.find({ [primaryKey]: { $in: values } });
-
-          if (existing.length > 0) {
-            return res.status(409).json({
-              success: false,
-              statusCode: 409,
-              message: `Duplicate ${primaryKey} values`,
-              error: existing.map((doc) => doc[primaryKey]),
-            });
-          }
+        const maximum = settings.maxBulkSize ?? 100;
+        if (docs.length > maximum)
+          return sendError(
+            req,
+            res,
+            413,
+            "BULK_LIMIT_EXCEEDED",
+            `Bulk requests must not exceed ${maximum} documents`,
+          );
+        if (settings.primaryKey) {
+          const key = settings.primaryKey;
+          const values: any[] = docs
+            .map((doc: any) => doc[key])
+            .filter((value: unknown) => value !== undefined && value !== null);
+          const duplicates = [
+            ...new Set(
+              values.filter(
+                (value: unknown, index: number) =>
+                  values.indexOf(value) !== index,
+              ),
+            ),
+          ];
+          if (duplicates.length)
+            return sendError(
+              req,
+              res,
+              409,
+              "CONFLICT",
+              `Duplicate ${key} values in request body`,
+              { values: duplicates },
+            );
+          const existing = values.length
+            ? await model.find({ [key]: { $in: values } })
+            : [];
+          if (existing.length)
+            return sendError(
+              req,
+              res,
+              409,
+              "CONFLICT",
+              `Duplicate ${key} values`,
+              { values: existing.map((doc: any) => doc[key]) },
+            );
         }
-
         const result = await insertMany(model, docs);
-
         return res.status(201).json({
           success: true,
           statusCode: 201,
@@ -217,12 +205,15 @@ export const createController = (
           data: result,
         });
       } catch (error: any) {
-        return res.status(500).json({
-          success: false,
-          statusCode: 500,
-          message: error.message || `Failed to insert ${modelName}s`,
-          data: null,
-        });
+        const details = Array.isArray(error?.writeErrors)
+          ? error.writeErrors.map((item: any) => ({
+              index: item.index,
+              code: item.code,
+              message: item.errmsg || item.message,
+            }))
+          : undefined;
+        if (details) error.details = details;
+        return handleError(req, res, error, logger);
       }
     },
   };

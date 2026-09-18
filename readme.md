@@ -5,10 +5,10 @@
 ## Installation
 
 ```bash
-npm install maggie-api
+npm install maggie-api express mongoose joi
 ```
 
-The package includes `express`, `mongoose`, and `joi` as dependencies. Your application must connect Mongoose to MongoDB before handling requests.
+`express` 5, `mongoose` 8, and `joi` 17 are peer dependencies; install them in the application that uses Maggie. Your application must connect Mongoose to MongoDB before handling requests. Node.js 20 or later is required.
 
 ## Quick start
 
@@ -42,10 +42,14 @@ const api = createMaggie({
         email: Joi.string().email().required(),
       }),
       settings: {
+        legacyPostUpdate: false,
+        maxBulkSize: 100,
         get: {
           keys: ["_id", "firstName", "lastName", "email"],
           search: { allowedFields: ["firstName", "lastName", "email"] },
-          filter: { allowedFields: ["email"] },
+          filter: { strict: true, fields: { email: { type: "string" } } },
+          sort: { allowedFields: ["firstName", "lastName"] },
+          maxLimit: 100,
         },
         getById: { keys: ["_id", "firstName", "lastName", "email"] },
       },
@@ -62,13 +66,14 @@ app.listen(3000);
 
 For a model configured with `prefix: "/api/v1"` and `path: "users"`:
 
-| Method | Route | Behavior |
-| --- | --- | --- |
-| `POST` | `/api/v1/users` | Creates a document, or updates it when the body contains `_id`. |
-| `POST` | `/api/v1/users/bulk` | Inserts a non-empty array of documents. |
-| `GET` | `/api/v1/users` | Returns all matching documents. |
-| `GET` | `/api/v1/users/:id` | Returns one document by MongoDB id. |
-| `DELETE` | `/api/v1/users/:id` | Deletes one document by MongoDB id. |
+| Method   | Route                | Behavior                                                        |
+| -------- | -------------------- | --------------------------------------------------------------- |
+| `POST`   | `/api/v1/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default). |
+| `POST`   | `/api/v1/users/bulk` | Inserts a non-empty array of documents.                         |
+| `PATCH`  | `/api/v1/users/:id`  | Partially updates one document.                                 |
+| `GET`    | `/api/v1/users`      | Returns all matching documents.                                 |
+| `GET`    | `/api/v1/users/:id`  | Returns one document by MongoDB id.                             |
+| `DELETE` | `/api/v1/users/:id`  | Deletes one document by MongoDB id.                             |
 
 All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. Joi validation converts values and strips unknown fields.
 
@@ -76,18 +81,18 @@ All routes receive `middleWares`, when configured. `validationSchema` is applied
 
 `GET` list routes support the following parameters.
 
-| Parameter | Example | Notes |
-| --- | --- | --- |
-| `search` | `?search=ada` | Requires a configured searchable field. |
-| `searchFields` | `?searchFields=firstName,lastName` | Restricted to `search.allowedFields` when provided. |
-| `caseSensitive` | `?caseSensitive=true` | Search is case-insensitive by default. |
-| `filter` | `?filter[email]=ada@example.com` | Only configured `filter.allowedFields` are used. |
-| Range filter | `?filter[age][gte]=18` | Supports `gte`, `lte`, `gt`, and `lt`. |
-| Array filter | `?filter[role][]=admin&filter[role][]=editor` | Produces an `$in` filter. |
-| `sort` | `?sort=-createdAt,lastName` | Prefix a field with `-` for descending order. |
-| `limit` and `page` | `?limit=20&page=2` | Pagination applies only when both are positive integers. |
+| Parameter          | Example                                       | Notes                                                                   |
+| ------------------ | --------------------------------------------- | ----------------------------------------------------------------------- |
+| `search`           | `?search=ada`                                 | Literal, length-limited search; requires a configured searchable field. |
+| `searchFields`     | `?searchFields=firstName,lastName`            | Restricted to `search.allowedFields` when provided.                     |
+| `caseSensitive`    | `?caseSensitive=true`                         | Search is case-insensitive by default.                                  |
+| `filter`           | `?filter[email]=ada@example.com`              | Requires `filter.fields` or `filter.allowedFields`; strict mode rejects unknown fields. |
+| Range filter       | `?filter[age][gte]=18`                        | Requires `age` to permit `gte`; supported range operators are `gte`, `lte`, `gt`, and `lt`. |
+| Array filter       | `?filter[email][]=a@example.com&filter[email][]=b@example.com` | Produces `$in` when the field permits `in`. |
+| `sort`             | `?sort=-createdAt,lastName`                   | Fields must be in `settings.get.sort.allowedFields`.                    |
+| `limit` and `page` | `?limit=20&page=2`                            | Positive integers; `limit` is capped by `maxLimit`.                     |
 
-When pagination is active, the response data contains the pluralized model-name key and `pagination` metadata.
+When pagination is active, the response data contains the configured `responseKey` (or the pluralized model name) and `pagination` metadata.
 
 ## Configuration
 
@@ -96,8 +101,10 @@ See [the configuration reference](docs/configuration.md) for the supported optio
 ## Notes
 
 - `getKeys` and `getByIdKeys` remain supported for compatibility, but prefer `settings.get.keys` and `settings.getById.keys`.
-- `primaryKey` performs an application-level duplicate check. Add a unique index to the Mongoose schema as the database-level guarantee.
-- Search terms are used as regular-expression patterns. Restrict access and input length as appropriate for your application.
+- `primaryKey` performs an application-level duplicate check. Add a unique index to the Mongoose schema as the database-level guarantee; Mongo duplicate-key errors return `409 CONFLICT`.
+- Errors use a consistent envelope with `data: null`, a stable `code`, and optional structured `details` for validation failures.
+- `POST` updates remain compatible by default. Set `settings.legacyPostUpdate: false` to require `PATCH /:id`.
+- For a full breaking-change summary, see the [2.0 migration note](docs/v1-migration.md).
 
 ## License
 
