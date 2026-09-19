@@ -4,13 +4,38 @@ import { parse } from "qs";
 import { URL } from "url";
 import { escapeRegex, singularToPlural } from "../utils/common";
 import { HttpError } from "../utils/errors";
-import { FilterValueType, ISetting } from "../utils/interface";
+import {
+  FilterConfig,
+  FilterValueType,
+  ISetting,
+  SoftDeleteConfig,
+} from "../utils/interface";
 
 export const createDoc = (model: Model<any>, data: any) => model.create(data);
 export const updateDoc = (model: Model<any>, id: string, data: any) =>
   model.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+export const replaceDoc = (model: Model<any>, id: string, data: any) =>
+  model.findOneAndReplace({ _id: id }, data, {
+    new: true,
+    runValidators: true,
+  });
 export const deleteById = (model: Model<any>, id: string) =>
   model.findByIdAndDelete(id);
+export const softDeleteById = (
+  model: Model<any>,
+  id: string,
+  softDelete: SoftDeleteConfig,
+  deletedBy: unknown,
+) => {
+  const deletedAt = softDelete.deletedAt || "deletedAt";
+  const update: Record<string, unknown> = { [deletedAt]: new Date() };
+  if (softDelete.deletedBy && deletedBy !== undefined)
+    update[softDelete.deletedBy] = deletedBy;
+  return model.findByIdAndUpdate(id, update, {
+    new: true,
+    runValidators: true,
+  });
+};
 export const insertMany = (model: Model<any>, docs: any[]) =>
   model.insertMany(docs);
 
@@ -63,27 +88,175 @@ export const parsePositiveInteger = (value: unknown): number | undefined => {
   return Number.isSafeInteger(number) ? number : undefined;
 };
 
-export const getAll = async (
-  model: Model<any>,
-  settings: ISetting,
-  req: Request,
-) => {
-  let query = model.find();
-  const url = new URL(
-    req.originalUrl,
-    `http://${req.headers.host || "localhost"}`,
-  );
-  const queryParams = parse(url.searchParams.toString());
-  if (settings.getKeys.length) query = query.select(settings.getKeys.join(" "));
-  const rawFilter = queryParams.filter;
-  const filterConfig = settings.get?.filter;
+const activeDocumentCondition = (softDelete?: SoftDeleteConfig) => {
+  if (!softDelete) return {};
+  const field = softDelete.deletedAt || "deletedAt";
+  return { $or: [{ [field]: { $exists: false } }, { [field]: null }] };
+};
+
+const encodeCursor = (value: unknown, id: unknown) =>
+  Buffer.from(JSON.stringify({ value, id: String(id) })).toString("base64url");
+const decodeCursor = (token: string): { value: unknown; id: string } => {
+  try {
+    const decoded = JSON.parse(Buffer.from(token, "base64url").toString());
+    if (!decoded || typeof decoded.id !== "string") throw new Error();
+    return decoded;
+  } catch {
+    throw new HttpError(400, "QUERY_ERROR", "Invalid cursor");
+  }
+};
+
+const buildFilterConditions = (
+  rawFilter: unknown,
+  filterConfig: FilterConfig | undefined,
+  depth = 0,
+): Record<string, any> => {
+  if (!rawFilter || typeof rawFilter !== "object" || Array.isArray(rawFilter))
+    return {};
+  if (depth > 3)
+    throw new HttpError(400, "QUERY_ERROR", "Filter nesting is too deep");
   const configuredFields = filterConfig?.fields || {};
   const allowedFields = new Set(
     filterConfig?.allowedFields || Object.keys(configuredFields),
   );
   const conditions: Record<string, any> = {};
+  for (const [field, raw] of Object.entries(rawFilter)) {
+    if (field === "$and" || field === "$or") {
+      const operator = field.slice(1) as "and" | "or";
+      if (!filterConfig?.logicalOperators?.includes(operator))
+        throw new HttpError(
+          400,
+          "QUERY_ERROR",
+          `Logical operator ${field} is not allowed`,
+        );
+      if (!Array.isArray(raw) || !raw.length)
+        throw new HttpError(
+          400,
+          "QUERY_ERROR",
+          `Logical operator ${field} requires a non-empty array`,
+        );
+      conditions[field] = raw.map((item) =>
+        buildFilterConditions(item, filterConfig, depth + 1),
+      );
+      continue;
+    }
+    if (!allowedFields.has(field)) {
+      if (filterConfig?.strict)
+        throw new HttpError(
+          400,
+          "QUERY_ERROR",
+          `Filter field ${field} is not allowed`,
+        );
+      continue;
+    }
+    const config = configuredFields[field];
+    const operators = new Set(
+      config?.operators || ["eq", "in", "gte", "lte", "gt", "lt"],
+    );
+    if (Array.isArray(raw)) {
+      if (!operators.has("in"))
+        throw new HttpError(
+          400,
+          "QUERY_ERROR",
+          `Operator in is not allowed for ${field}`,
+        );
+      conditions[field] = {
+        $in: raw.map((value) => castValue(value, config?.type, field)),
+      };
+      continue;
+    }
+    if (raw && typeof raw === "object") {
+      const range: Record<string, unknown> = {};
+      for (const [op, value] of Object.entries(raw)) {
+        if (!operators.has(op as any)) {
+          if (filterConfig?.strict)
+            throw new HttpError(
+              400,
+              "QUERY_ERROR",
+              `Operator ${op} is not allowed for ${field}`,
+            );
+          continue;
+        }
+        if (["gte", "lte", "gt", "lt", "ne"].includes(op))
+          range[`$${op}`] = castValue(value, config?.type, field);
+        else if (op === "nin")
+          range.$nin = (Array.isArray(value) ? value : [value]).map((item) =>
+            castValue(item, config?.type, field),
+          );
+        else if (op === "exists") {
+          if (value !== "true" && value !== "false")
+            throw new HttpError(
+              400,
+              "QUERY_ERROR",
+              `Invalid exists value for ${field}`,
+            );
+          range.$exists = value === "true";
+        } else if (op === "regex") {
+          if (!config?.allowRegex)
+            throw new HttpError(
+              400,
+              "QUERY_ERROR",
+              `Regex filters are not enabled for ${field}`,
+            );
+          try {
+            range.$regex = new RegExp(String(value));
+          } catch {
+            throw new HttpError(
+              400,
+              "QUERY_ERROR",
+              `Invalid regular expression for ${field}`,
+            );
+          }
+        }
+      }
+      if (Object.keys(range).length) conditions[field] = range;
+      continue;
+    }
+    if (!operators.has("eq"))
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `Operator eq is not allowed for ${field}`,
+      );
+    conditions[field] = castValue(raw, config?.type, field);
+  }
+  return conditions;
+};
+
+export const getAll = async (
+  model: Model<any>,
+  settings: ISetting,
+  req: Request,
+) => {
+  let query = model.find(activeDocumentCondition(settings.softDelete));
+  const url = new URL(
+    req.originalUrl,
+    `http://${req.headers.host || "localhost"}`,
+  );
+  const queryParams = parse(url.searchParams.toString());
+  const readable = settings.permissions?.readable || settings.getKeys;
+  if (readable.length) query = query.select(readable.join(" "));
+  const rawFilter = queryParams.filter;
+  const filterConfig = settings.permissions?.filterable
+    ? {
+        ...settings.get?.filter,
+        allowedFields: settings.permissions.filterable,
+      }
+    : settings.get?.filter;
+  const configuredFields = filterConfig?.fields || {};
+  const allowedFields = new Set(
+    settings.permissions?.filterable ||
+      filterConfig?.allowedFields ||
+      Object.keys(configuredFields),
+  );
+  const conditions: Record<string, any> = {};
+  const groupedConditions = buildFilterConditions(rawFilter, filterConfig);
   if (rawFilter && typeof rawFilter === "object" && !Array.isArray(rawFilter)) {
     for (const [field, raw] of Object.entries(rawFilter)) {
+      if (field === "$and" || field === "$or") {
+        conditions[field] = groupedConditions[field];
+        continue;
+      }
       if (!allowedFields.has(field)) {
         if (filterConfig?.strict)
           throw new HttpError(
@@ -110,10 +283,7 @@ export const getAll = async (
       } else if (raw && typeof raw === "object") {
         const range: Record<string, unknown> = {};
         for (const [op, value] of Object.entries(raw)) {
-          if (
-            !["gte", "lte", "gt", "lt"].includes(op) ||
-            !operators.has(op as any)
-          ) {
+          if (!operators.has(op as any)) {
             if (filterConfig?.strict)
               throw new HttpError(
                 400,
@@ -122,7 +292,44 @@ export const getAll = async (
               );
             continue;
           }
-          range[`$${op}`] = castValue(value, config?.type, field);
+          if (["gte", "lte", "gt", "lt", "ne"].includes(op))
+            range[`$${op}`] = castValue(value, config?.type, field);
+          else if (op === "nin")
+            range.$nin = (Array.isArray(value) ? value : [value]).map((item) =>
+              castValue(item, config?.type, field),
+            );
+          else if (op === "exists") {
+            if (value !== "true" && value !== "false")
+              throw new HttpError(
+                400,
+                "QUERY_ERROR",
+                `Invalid exists value for ${field}`,
+              );
+            range.$exists = value === "true";
+          } else if (op === "regex") {
+            if (!config?.allowRegex)
+              throw new HttpError(
+                400,
+                "QUERY_ERROR",
+                `Regex filters are not enabled for ${field}`,
+              );
+            try {
+              range.$regex = new RegExp(String(value));
+            } catch {
+              throw new HttpError(
+                400,
+                "QUERY_ERROR",
+                `Invalid regular expression for ${field}`,
+              );
+            }
+          } else {
+            if (filterConfig?.strict)
+              throw new HttpError(
+                400,
+                "QUERY_ERROR",
+                `Operator ${op} is not allowed for ${field}`,
+              );
+          }
         }
         if (Object.keys(range).length) conditions[field] = range;
       } else {
@@ -158,7 +365,8 @@ export const getAll = async (
             .map((field) => field.trim())
             .filter(Boolean)
         : [];
-    const allowed = searchConfig?.allowedFields || [];
+    const allowed =
+      settings.permissions?.searchable || searchConfig?.allowedFields || [];
     const fields = requested.length
       ? requested.filter((field) => allowed.includes(field))
       : allowed;
@@ -182,7 +390,9 @@ export const getAll = async (
   for (const populate of settings.get?.populate || [])
     query = query.populate(populate);
   if (typeof queryParams.sort === "string" && queryParams.sort) {
-    const allowed = new Set(settings.get?.sort?.allowedFields || []);
+    const allowed = new Set(
+      settings.permissions?.sortable || settings.get?.sort?.allowedFields || [],
+    );
     const strict = settings.get?.sort?.strict !== false;
     const sort: Record<string, 1 | -1> = {};
     for (const token of queryParams.sort
@@ -212,9 +422,65 @@ export const getAll = async (
       "QUERY_ERROR",
       `limit must not exceed ${maxLimit}`,
     );
+  const cursorConfig = settings.get?.cursorPagination;
+  const cursor = queryParams.cursor;
   let pagination;
+  let cursorPagination;
   let results;
-  if (requestedLimit && page) {
+  if (typeof cursor === "string") {
+    if (!cursorConfig)
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        "Cursor pagination is not enabled",
+      );
+    const limit =
+      requestedLimit || Math.min(cursorConfig.maxLimit ?? maxLimit, 20);
+    const cursorMax = Math.min(cursorConfig.maxLimit ?? maxLimit, maxLimit);
+    if (limit > cursorMax)
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `limit must not exceed ${cursorMax} for cursor pagination`,
+      );
+    const direction = cursorConfig.direction === "desc" ? -1 : 1;
+    if (cursor !== "start") {
+      const decoded = decodeCursor(cursor);
+      const value = castValue(
+        decoded.value,
+        cursorConfig.type,
+        cursorConfig.field,
+      );
+      const comparison = direction === 1 ? "$gt" : "$lt";
+      query = query.find({
+        $and: [
+          {
+            $or: [
+              { [cursorConfig.field]: { [comparison]: value } },
+              {
+                [cursorConfig.field]: value,
+                _id: { [comparison]: new Types.ObjectId(decoded.id) },
+              },
+            ],
+          },
+        ],
+      });
+    }
+    const pageResults = await query
+      .sort({ [cursorConfig.field]: direction, _id: direction })
+      .limit(limit + 1)
+      .exec();
+    const hasNextPage = pageResults.length > limit;
+    results = hasNextPage ? pageResults.slice(0, limit) : pageResults;
+    const last = results[results.length - 1] as any;
+    cursorPagination = {
+      limit,
+      nextCursor:
+        hasNextPage && last
+          ? encodeCursor(last.get(cursorConfig.field), last._id)
+          : null,
+    };
+  } else if (requestedLimit && page) {
     const total = await model.countDocuments(query.getQuery());
     results = await query
       .skip((page - 1) * requestedLimit)
@@ -231,16 +497,21 @@ export const getAll = async (
     settings.responseKey || singularToPlural(model.modelName.toLowerCase());
   return pagination
     ? { [responseKey]: results, pagination }
-    : { [responseKey]: results };
+    : cursorPagination
+      ? { [responseKey]: results, cursorPagination }
+      : { [responseKey]: results };
 };
 export const getById = async (
   model: Model<any>,
   id: string,
   settings: ISetting,
 ) => {
-  let query = model.findById(id);
-  if (settings.getByIdKeys.length)
-    query = query.select(settings.getByIdKeys.join(" "));
+  let query = model.findOne({
+    _id: id,
+    ...activeDocumentCondition(settings.softDelete),
+  });
+  const readable = settings.permissions?.readable || settings.getByIdKeys;
+  if (readable.length) query = query.select(readable.join(" "));
   for (const populate of settings.getById?.populate || [])
     query = query.populate(populate);
   return query.exec();

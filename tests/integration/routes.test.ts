@@ -26,6 +26,30 @@ const NoContent = mongoose.model(
   "NoContent",
   new Schema({ name: { type: String, required: true } }),
 );
+const SoftPerson = mongoose.model(
+  "SoftPerson",
+  new Schema({
+    name: { type: String, required: true },
+    deletedAt: Date,
+    deletedBy: String,
+  }),
+);
+const Department = mongoose.model(
+  "DepartmentForV2",
+  new Schema({ name: { type: String, required: true } }),
+);
+const Employee = mongoose.model(
+  "EmployeeForV2",
+  new Schema({
+    name: { type: String, required: true },
+    department: { type: Schema.Types.ObjectId, ref: "DepartmentForV2" },
+  }),
+);
+const MiddlewarePerson = mongoose.model(
+  "MiddlewarePerson",
+  new Schema({ name: { type: String, required: true } }),
+);
+const middlewareOrder: string[] = [];
 const app = express();
 app.use(express.json());
 app.use(
@@ -52,13 +76,19 @@ app.use(
             search: { allowedFields: ["name"], maxLength: 10 },
             filter: {
               strict: true,
+              logicalOperators: ["or"],
               fields: {
-                age: { type: "number", operators: ["eq", "gte", "lte"] },
+                age: {
+                  type: "number",
+                  operators: ["eq", "ne", "nin", "gte", "lte", "exists"],
+                },
                 active: { type: "boolean", operators: ["eq"] },
+                name: { operators: ["regex"], allowRegex: true },
               },
             },
             sort: { allowedFields: ["name", "age"] },
             maxLimit: 2,
+            cursorPagination: { field: "age", type: "number", maxLimit: 2 },
           },
         },
       },
@@ -70,6 +100,7 @@ patchOnlyApp.use(express.json());
 patchOnlyApp.use(
   createMaggie({
     prefix: "/api",
+    requestId: (req) => req.header("x-custom-request") || undefined,
     models: [
       {
         model: PatchOnly,
@@ -80,6 +111,37 @@ patchOnlyApp.use(
       },
       { model: UniqueOnly, path: "unique-only" },
       { model: NoContent, path: "no-content", settings: { deleteStatus: 204 } },
+      {
+        model: SoftPerson,
+        path: "soft-people",
+        settings: {
+          softDelete: {
+            deletedBy: "deletedBy",
+            getDeletedBy: (req) => req.header("x-actor"),
+          },
+        },
+      },
+      {
+        model: Employee,
+        path: "employees",
+        settings: {
+          get: { populate: [{ path: "department", select: ["name"] }] },
+        },
+      },
+      {
+        model: MiddlewarePerson,
+        path: "middleware-people",
+        middleWares: [
+          (_req, _res, next) => {
+            middlewareOrder.push("first");
+            next();
+          },
+          (_req, _res, next) => {
+            middlewareOrder.push("second");
+            next();
+          },
+        ],
+      },
     ],
   }),
 );
@@ -107,6 +169,11 @@ describe("generated routes", () => {
       .post("/api/people")
       .send({ _id: id, name: "Ada Byron", email: "ada@example.com" });
     expect(legacyUpdated.status).toBe(200);
+    const replaced = await request(app)
+      .put(`/api/people/${id}`)
+      .send({ name: "Ada King", email: "ada@example.com" });
+    expect(replaced.status).toBe(200);
+    expect(replaced.body.data.age).toBeUndefined();
     const patched = await request(app)
       .patch(`/api/people/${id}`)
       .send({ name: "Ada Lovelace" });
@@ -143,6 +210,31 @@ describe("generated routes", () => {
     expect(list.status).toBe(200);
     expect(list.body.data.pagination.total).toBe(2);
     expect(list.body.data.members[0].name).toBe("Bee");
+    expect(
+      (await request(app).get("/api/people?filter[age][ne]=20")).body.data
+        .members,
+    ).toHaveLength(1);
+    expect(
+      (await request(app).get("/api/people?filter[name][regex]=^B")).body.data
+        .members,
+    ).toHaveLength(1);
+    expect(
+      (
+        await request(app).get(
+          "/api/people?filter[$or][0][age][gte]=25&filter[$or][1][active]=true",
+        )
+      ).body.data.members,
+    ).toHaveLength(2);
+    const firstCursorPage = await request(app).get(
+      "/api/people?cursor=start&limit=1",
+    );
+    expect(firstCursorPage.body.data.members).toHaveLength(1);
+    expect(firstCursorPage.body.data.cursorPagination.nextCursor).toBeTruthy();
+    const secondCursorPage = await request(app).get(
+      `/api/people?cursor=${firstCursorPage.body.data.cursorPagination.nextCursor}&limit=1`,
+    );
+    expect(secondCursorPage.body.data.members).toHaveLength(1);
+    expect(secondCursorPage.body.data.members[0].name).toBe("Bee");
     expect((await request(app).get("/api/people?sort=email")).status).toBe(400);
     expect(
       (await request(app).get("/api/people?filter[age][gte]=bad")).status,
@@ -205,5 +297,49 @@ describe("generated routes", () => {
     );
     expect(deleted.status).toBe(204);
     expect(deleted.text).toBe("");
+
+    const raced = await Promise.all(
+      ["First", "Second"].map((name) =>
+        request(patchOnlyApp)
+          .post("/api/unique-only")
+          .send({ email: "race@example.com", name }),
+      ),
+    );
+    expect(raced.map((response) => response.status).sort()).toEqual([201, 409]);
+  });
+  it("soft-deletes records and hides them from reads", async () => {
+    const created = await SoftPerson.create({ name: "Recoverable" });
+    const deleted = await request(patchOnlyApp)
+      .delete(`/api/soft-people/${created.id}`)
+      .set("x-actor", "admin-42");
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.data.deletedBy).toBe("admin-42");
+    expect(deleted.body.data.deletedAt).toBeTruthy();
+    expect(
+      (await request(patchOnlyApp).get(`/api/soft-people/${created.id}`))
+        .status,
+    ).toBe(404);
+    expect(
+      (await request(patchOnlyApp).get("/api/soft-people")).body.data
+        .softpeople,
+    ).toHaveLength(0);
+    expect((await SoftPerson.findById(created.id))?.deletedAt).toBeTruthy();
+  });
+  it("populates configured relations and preserves middleware and request-ID behavior", async () => {
+    const department = await Department.create({ name: "Engineering" });
+    await Employee.create({ name: "Ada", department: department.id });
+    const employees = await request(patchOnlyApp).get("/api/employees");
+    expect(employees.body.data.employeeforv2s[0].department.name).toBe(
+      "Engineering",
+    );
+
+    middlewareOrder.length = 0;
+    const response = await request(patchOnlyApp)
+      .post("/api/middleware-people")
+      .set("x-custom-request", "request-123")
+      .send({ name: "Ordered" });
+    expect(response.status).toBe(201);
+    expect(response.headers["x-request-id"]).toBe("request-123");
+    expect(middlewareOrder).toEqual(["first", "second"]);
   });
 });

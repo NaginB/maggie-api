@@ -6,9 +6,11 @@ import {
   getAll,
   getById,
   insertMany,
+  replaceDoc,
+  softDeleteById,
   updateDoc,
 } from "../services";
-import { handleError, sendError } from "../utils/errors";
+import { handleError, HttpError, sendError } from "../utils/errors";
 import { ControllerSettings, MaggieLogger } from "../utils/interface";
 
 export const createController = (
@@ -17,6 +19,39 @@ export const createController = (
   logger?: MaggieLogger,
 ) => {
   const modelName = model.modelName;
+  const runHook = async (
+    name: keyof NonNullable<ControllerSettings["hooks"]>,
+    req: Request,
+    operation: any,
+    input?: any,
+    document?: unknown,
+  ) => settings.hooks?.[name]?.({ operation, req, model, input, document });
+  const lifecycleData = (req: Request, body: any, create = false) => {
+    const lifecycle = settings.lifecycle;
+    const actor = lifecycle?.getActor?.(req);
+    if (!lifecycle || actor === undefined) return body;
+    return {
+      ...body,
+      ...(create && lifecycle.createdBy
+        ? { [lifecycle.createdBy]: actor }
+        : {}),
+      ...(lifecycle.updatedBy ? { [lifecycle.updatedBy]: actor } : {}),
+    };
+  };
+  const writableData = (body: any) => {
+    const writable = settings.permissions?.writable;
+    if (!writable) return body;
+    const forbidden = Object.keys(body).filter(
+      (field) => field !== "_id" && !writable.includes(field),
+    );
+    if (forbidden.length)
+      throw new HttpError(
+        403,
+        "FORBIDDEN",
+        `Write fields are not allowed: ${forbidden.join(", ")}`,
+      );
+    return body;
+  };
   const conflict = (req: Request, res: Response) =>
     sendError(
       req,
@@ -41,14 +76,39 @@ export const createController = (
     return false;
   };
   const update = async (req: Request, res: Response, id: string, body: any) => {
+    body = writableData(body);
+    body = lifecycleData(req, body);
+    await runHook("beforeUpdate", req, "update", body);
     if (await checkPrimaryKey(req, res, body, id)) return;
     const result = await updateDoc(model, id, body);
     if (!result)
       return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
+    await runHook("afterUpdate", req, "update", body, result);
     return res.status(200).json({
       success: true,
       statusCode: 200,
       message: `${modelName} updated successfully`,
+      data: result,
+    });
+  };
+  const replace = async (
+    req: Request,
+    res: Response,
+    id: string,
+    body: any,
+  ) => {
+    body = writableData(body);
+    body = lifecycleData(req, body);
+    await runHook("beforeUpdate", req, "replace", body);
+    if (await checkPrimaryKey(req, res, body, id)) return;
+    const result = await replaceDoc(model, id, body);
+    if (!result)
+      return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
+    await runHook("afterUpdate", req, "replace", body, result);
+    return res.status(200).json({
+      success: true,
+      statusCode: 200,
+      message: `${modelName} replaced successfully`,
       data: result,
     });
   };
@@ -67,8 +127,11 @@ export const createController = (
             );
           return await update(req, res, String(_id), body);
         }
-        if (await checkPrimaryKey(req, res, body)) return;
-        const result = await createDoc(model, body);
+        const input = lifecycleData(req, writableData(body), true);
+        await runHook("beforeCreate", req, "create", input);
+        if (await checkPrimaryKey(req, res, input)) return;
+        const result = await createDoc(model, input);
+        await runHook("afterCreate", req, "create", input, result);
         return res.status(201).json({
           success: true,
           statusCode: 201,
@@ -86,9 +149,24 @@ export const createController = (
         return handleError(req, res, error, logger);
       }
     },
+    replace: async (req: Request, res: Response) => {
+      try {
+        return await replace(req, res, req.params.id, req.body);
+      } catch (error) {
+        return handleError(req, res, error, logger);
+      }
+    },
     remove: async (req: Request, res: Response) => {
       try {
-        const result = await deleteById(model, req.params.id);
+        await runHook("beforeDelete", req, "delete");
+        const result = settings.softDelete
+          ? await softDeleteById(
+              model,
+              req.params.id,
+              settings.softDelete,
+              settings.softDelete.getDeletedBy?.(req),
+            )
+          : await deleteById(model, req.params.id);
         if (!result)
           return sendError(
             req,
@@ -97,6 +175,7 @@ export const createController = (
             "NOT_FOUND",
             `${modelName} not found`,
           );
+        await runHook("afterDelete", req, "delete", undefined, result);
         if (settings.deleteStatus === 204) return res.status(204).send();
         return res.status(200).json({
           success: true,

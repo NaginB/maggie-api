@@ -4,19 +4,19 @@ This roadmap focuses on making `maggie-api` safer to expose publicly, easier to 
 
 ## V2 launch scope
 
-- [ ] **Add PUT replacement semantics.** Keep `POST` compatibility updates opt-in, retain PATCH for partial updates, and offer an explicit replacement route only with clear validation rules.
-- [ ] **Add configurable soft deletes.** Support `deletedAt` and `deletedBy` for models that require recoverability.
-- [ ] **Expand query expressiveness safely.** Add narrowly scoped operators and logical groups without weakening the current allow-lists.
-- [ ] **Increase integration coverage.** Add population, middleware-order, custom request-ID, and race-condition cases to the existing route matrix.
-- [ ] **Generate OpenAPI.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses.
+- [x] **Add PUT replacement semantics.** Keep `POST` compatibility updates opt-in, retain PATCH for partial updates, and offer an explicit replacement route only with clear validation rules.
+- [x] **Add configurable soft deletes.** Support `deletedAt` and `deletedBy` for models that require recoverability.
+- [x] **Expand query expressiveness safely.** Add narrowly scoped operators and logical groups without weakening the current allow-lists.
+- [x] **Increase integration coverage.** Add population, middleware-order, custom request-ID, and race-condition cases to the existing route matrix.
+- [x] **Generate OpenAPI.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses.
 
 ## High-value post-launch features
 
-- [ ] **Policy hooks.** Add `beforeCreate`, `beforeUpdate`, `beforeDelete`, `afterCreate`, `afterUpdate`, and `afterDelete` hooks. Hooks should receive the request, model, input, and result and support async work.
+- [x] **Policy hooks.** Add `beforeCreate`, `beforeUpdate`, `beforeDelete`, `afterCreate`, `afterUpdate`, and `afterDelete` hooks. Hooks should receive the request, model, input, and result and support async work.
 - [ ] **Authorization hooks.** Allow per-route `authorize` handlers and query scopes so an application can enforce rules such as “a user may only see their own records.”
-- [ ] **Field-level permissions.** Support separate readable, writable, filterable, sortable, and searchable field allow-lists by operation.
-- [ ] **Advanced filtering.** Add a typed operator allow-list (`eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists`, `regex`) and configurable logical groups. Keep the default deliberately restrictive.
-- [ ] **Cursor pagination.** Add cursor-based pagination alongside the existing offset pagination for large collections and live data feeds.
+- [x] **Field-level permissions.** Support separate readable, writable, filterable, sortable, and searchable field allow-lists by operation.
+- [x] **Advanced filtering.** Add a typed operator allow-list (`eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists`, `regex`) and configurable logical groups. Keep the default deliberately restrictive.
+- [x] **Cursor pagination.** Add cursor-based pagination alongside the existing offset pagination for large collections and live data feeds.
 - [ ] **Projection and population controls.** Permit safe client-selected fields and controlled population through allow-lists; add population depth and result-size limits.
 - [ ] **Schema-derived validation.** Offer optional generation of Joi or Zod validation from a Mongoose schema, while retaining manually supplied schemas for complex rules.
 - [ ] **Bulk operation improvements.** Support atomic/non-atomic modes, ordered/unordered writes, per-item errors, maximum batch size, and bulk update/delete operations.

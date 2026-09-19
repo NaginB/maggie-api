@@ -2,7 +2,8 @@ import { randomUUID } from "crypto";
 import { Request, RequestHandler, Router } from "express";
 import Joi from "joi";
 import { createController } from "../controllers";
-import { ISetting, MaggiePayload } from "../utils/interface";
+import { ISetting, MaggieOperation, MaggiePayload } from "../utils/interface";
+import { sendError } from "../utils/errors";
 import { validateBody } from "../utils/validateBody";
 
 const asHandler =
@@ -30,6 +31,7 @@ const createMaggie = ({
       path,
       validationSchema,
       updateValidationSchema,
+      replaceValidationSchema,
       primaryKey,
       middleWares = [],
       getKeys = [],
@@ -44,13 +46,29 @@ const createMaggie = ({
       };
       const controller = createController(model, settingsObj, logger);
       const subRouter = Router();
+      const authorize =
+        (operation: MaggieOperation): RequestHandler =>
+        async (req, res, next) => {
+          const allowed = await settingsObj.authorize?.[operation]?.(
+            req,
+            operation,
+          );
+          if (allowed === false)
+            return void sendError(req, res, 403, "FORBIDDEN", "Forbidden");
+          next();
+        };
       const createMiddleware: RequestHandler[] = [...middleWares];
       const updateMiddleware: RequestHandler[] = [...middleWares];
+      const replaceMiddleware: RequestHandler[] = [...middleWares];
       const bulkMiddleware: RequestHandler[] = [...middleWares];
       if (validationSchema) {
         createMiddleware.push(validateBody(validationSchema));
         bulkMiddleware.push(validateBody(Joi.array().items(validationSchema)));
       }
+      if (replaceValidationSchema)
+        replaceMiddleware.push(validateBody(replaceValidationSchema));
+      else if (validationSchema)
+        replaceMiddleware.push(validateBody(validationSchema));
       if (updateValidationSchema)
         updateMiddleware.push(validateBody(updateValidationSchema));
       else if (validationSchema)
@@ -64,22 +82,46 @@ const createMaggie = ({
         );
       subRouter.post(
         "/",
+        authorize("create"),
         ...createMiddleware,
         asHandler(controller.addOrUpdate),
       );
       subRouter.post(
         "/bulk",
+        authorize("bulk"),
         ...bulkMiddleware,
         asHandler(controller.insertMany),
       );
       subRouter.patch(
         "/:id",
+        authorize("update"),
         ...updateMiddleware,
         asHandler(controller.update),
       );
-      subRouter.delete("/:id", ...middleWares, asHandler(controller.remove));
-      subRouter.get("/", ...middleWares, asHandler(controller.getAll));
-      subRouter.get("/:id", ...middleWares, asHandler(controller.getById));
+      subRouter.put(
+        "/:id",
+        authorize("replace"),
+        ...replaceMiddleware,
+        asHandler(controller.replace),
+      );
+      subRouter.delete(
+        "/:id",
+        authorize("delete"),
+        ...middleWares,
+        asHandler(controller.remove),
+      );
+      subRouter.get(
+        "/",
+        authorize("read"),
+        ...middleWares,
+        asHandler(controller.getAll),
+      );
+      subRouter.get(
+        "/:id",
+        authorize("read"),
+        ...middleWares,
+        asHandler(controller.getById),
+      );
       router.use(`${prefix}/${path}`, subRouter);
     },
   );

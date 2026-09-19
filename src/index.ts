@@ -2,6 +2,7 @@ export type {
   APISettings,
   ApiResponse,
   ControllerSettings,
+  CursorPaginationConfig,
   ErrorCode,
   FilterConfig,
   FilterFieldConfig,
@@ -12,8 +13,18 @@ export type {
   MaggieLogger,
   MaggieModelPayload,
   MaggiePayload,
+  MaggieAuthorizer,
+  MaggieHook,
+  MaggieHookContext,
+  MaggieHooks,
+  MaggieOperation,
+  FieldPermissions,
+  LifecycleMetadataConfig,
   PopulateField,
   SearchConfig,
+  SoftDeleteConfig,
   SortConfig,
 } from "./utils/interface";
 export { default as createMaggie } from "./routes";
+export { createOpenApiDocument } from "./openapi";
+export type { OpenApiOptions } from "./openapi";

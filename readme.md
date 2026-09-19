@@ -66,14 +66,15 @@ app.listen(3000);
 
 For a model configured with `prefix: "/api/v1"` and `path: "users"`:
 
-| Method   | Route                | Behavior                                                                                 |
-| -------- | -------------------- | ---------------------------------------------------------------------------------------- |
-| `POST`   | `/api/v1/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default). |
-| `POST`   | `/api/v1/users/bulk` | Inserts a non-empty array of documents.                                                  |
-| `PATCH`  | `/api/v1/users/:id`  | Partially updates one document.                                                          |
-| `GET`    | `/api/v1/users`      | Returns all matching documents.                                                          |
-| `GET`    | `/api/v1/users/:id`  | Returns one document by MongoDB id.                                                      |
-| `DELETE` | `/api/v1/users/:id`  | Deletes one document by MongoDB id.                                                      |
+| Method   | Route                | Behavior                                                                                      |
+| -------- | -------------------- | --------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/v1/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default).      |
+| `POST`   | `/api/v1/users/bulk` | Inserts a non-empty array of documents.                                                       |
+| `PATCH`  | `/api/v1/users/:id`  | Partially updates one document.                                                               |
+| `PUT`    | `/api/v1/users/:id`  | Replaces one document; uses the full create schema unless a replacement schema is configured. |
+| `GET`    | `/api/v1/users`      | Returns all matching documents.                                                               |
+| `GET`    | `/api/v1/users/:id`  | Returns one document by MongoDB id.                                                           |
+| `DELETE` | `/api/v1/users/:id`  | Deletes one document by MongoDB id.                                                           |
 
 All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. PATCH uses `updateValidationSchema` when supplied, otherwise an optionalized form of `validationSchema`. Joi validation converts values and strips unknown fields.
 
@@ -104,6 +105,7 @@ See [the configuration reference](docs/configuration.md) for the supported optio
 - `primaryKey` performs an application-level duplicate check. Add a unique index to the Mongoose schema as the database-level guarantee; Mongo duplicate-key errors return `409 CONFLICT`.
 - Errors use a consistent envelope with `data: null`, a stable `code`, and optional structured `details` for validation failures.
 - `POST` updates remain compatible by default. Set `settings.legacyPostUpdate: false` to require `PATCH /:id`.
+- Set `settings.softDelete` to retain deleted documents. Soft-deleted records are hidden from generated reads by default.
 - For a full breaking-change summary, see the [2.0 migration note](docs/v1-migration.md).
 
 ## License

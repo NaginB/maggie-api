@@ -9,6 +9,7 @@ export type ErrorCode =
   | "CONFLICT"
   | "QUERY_ERROR"
   | "BULK_LIMIT_EXCEEDED"
+  | "FORBIDDEN"
   | "INTERNAL_ERROR";
 export interface ApiResponse<T = unknown> {
   success: boolean;
@@ -30,21 +31,75 @@ export interface SearchConfig {
   maxLength?: number;
   allowRegex?: boolean;
 }
-export type FilterOperator = "eq" | "in" | "gte" | "lte" | "gt" | "lt";
+export type FilterOperator =
+  "eq" | "ne" | "in" | "nin" | "exists" | "regex" | "gte" | "lte" | "gt" | "lt";
 export type FilterValueType =
   "string" | "number" | "boolean" | "date" | "objectId";
 export interface FilterFieldConfig {
   type?: FilterValueType;
   operators?: FilterOperator[];
+  /** Permits `regex`; literal matching remains the default. */
+  allowRegex?: boolean;
 }
 export interface FilterConfig {
   allowedFields?: string[];
   fields?: Record<string, FilterFieldConfig>;
   strict?: boolean;
+  /** Explicitly permits `filter[$and]` and/or `filter[$or]` query groups. */
+  logicalOperators?: Array<"and" | "or">;
 }
 export interface SortConfig {
   allowedFields?: string[];
   strict?: boolean;
+}
+export interface CursorPaginationConfig {
+  /** Stable field used to order cursor pages. */
+  field: string;
+  type?: FilterValueType;
+  direction?: "asc" | "desc";
+  maxLimit?: number;
+}
+export interface SoftDeleteConfig {
+  /** Field that stores the deletion time. Defaults to `deletedAt`. */
+  deletedAt?: string;
+  /** Optional field that records the deleting actor. */
+  deletedBy?: string;
+  /** Resolves the actor value for `deletedBy` from the current request. */
+  getDeletedBy?: (req: Request) => unknown;
+}
+export type MaggieOperation =
+  "create" | "read" | "update" | "replace" | "delete" | "bulk";
+export interface MaggieHookContext {
+  operation: MaggieOperation;
+  req: Request;
+  model: Model<any>;
+  input?: Record<string, unknown> | Array<Record<string, unknown>>;
+  document?: unknown;
+}
+export type MaggieHook = (context: MaggieHookContext) => void | Promise<void>;
+export interface MaggieHooks {
+  beforeCreate?: MaggieHook;
+  afterCreate?: MaggieHook;
+  beforeUpdate?: MaggieHook;
+  afterUpdate?: MaggieHook;
+  beforeDelete?: MaggieHook;
+  afterDelete?: MaggieHook;
+}
+export type MaggieAuthorizer = (
+  req: Request,
+  operation: MaggieOperation,
+) => boolean | Promise<boolean>;
+export interface FieldPermissions {
+  readable?: string[];
+  writable?: string[];
+  filterable?: string[];
+  sortable?: string[];
+  searchable?: string[];
+}
+export interface LifecycleMetadataConfig {
+  createdBy?: string;
+  updatedBy?: string;
+  getActor?: (req: Request) => unknown;
 }
 export interface ListSettings {
   populate?: PopulateField[];
@@ -53,6 +108,7 @@ export interface ListSettings {
   search?: SearchConfig;
   sort?: SortConfig;
   maxLimit?: number;
+  cursorPagination?: CursorPaginationConfig;
 }
 export interface APISettings {
   get?: ListSettings;
@@ -61,12 +117,18 @@ export interface APISettings {
   maxBulkSize?: number;
   legacyPostUpdate?: boolean;
   deleteStatus?: 200 | 204;
+  softDelete?: SoftDeleteConfig;
+  hooks?: MaggieHooks;
+  authorize?: Partial<Record<MaggieOperation, MaggieAuthorizer>>;
+  permissions?: FieldPermissions;
+  lifecycle?: LifecycleMetadataConfig;
 }
 export interface MaggieModelPayload {
   model: Model<any>;
   path: string;
   validationSchema?: Joi.ObjectSchema;
   updateValidationSchema?: Joi.ObjectSchema;
+  replaceValidationSchema?: Joi.ObjectSchema;
   primaryKey?: string;
   middleWares?: RequestHandler[];
   settings?: APISettings;
