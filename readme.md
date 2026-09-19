@@ -29,7 +29,7 @@ const userSchema = new Schema({
 const User = mongoose.model("User", userSchema);
 
 const api = createMaggie({
-  prefix: "/api/v1",
+  prefix: "/api/v3",
   models: [
     {
       model: User,
@@ -64,17 +64,17 @@ app.listen(3000);
 
 ## Generated routes
 
-For a model configured with `prefix: "/api/v1"` and `path: "users"`:
+For a model configured with `prefix: "/api/v3"` and `path: "users"`:
 
 | Method   | Route                | Behavior                                                                                      |
 | -------- | -------------------- | --------------------------------------------------------------------------------------------- |
-| `POST`   | `/api/v1/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default).      |
-| `POST`   | `/api/v1/users/bulk` | Inserts a non-empty array of documents.                                                       |
-| `PATCH`  | `/api/v1/users/:id`  | Partially updates one document.                                                               |
-| `PUT`    | `/api/v1/users/:id`  | Replaces one document; uses the full create schema unless a replacement schema is configured. |
-| `GET`    | `/api/v1/users`      | Returns all matching documents.                                                               |
-| `GET`    | `/api/v1/users/:id`  | Returns one document by MongoDB id.                                                           |
-| `DELETE` | `/api/v1/users/:id`  | Deletes one document by MongoDB id.                                                           |
+| `POST`   | `/api/v3/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default).      |
+| `POST`   | `/api/v3/users/bulk` | Inserts a non-empty array of documents.                                                       |
+| `PATCH`  | `/api/v3/users/:id`  | Partially updates one document.                                                               |
+| `PUT`    | `/api/v3/users/:id`  | Replaces one document; uses the full create schema unless a replacement schema is configured. |
+| `GET`    | `/api/v3/users`      | Returns all matching documents.                                                               |
+| `GET`    | `/api/v3/users/:id`  | Returns one document by MongoDB id.                                                           |
+| `DELETE` | `/api/v3/users/:id`  | Deletes one document by MongoDB id.                                                           |
 
 All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. PATCH uses `updateValidationSchema` when supplied, otherwise an optionalized form of `validationSchema`. Joi validation converts values and strips unknown fields.
 
@@ -106,7 +106,7 @@ See [the configuration reference](docs/configuration.md) for the supported optio
 - Errors use a consistent envelope with `data: null`, a stable `code`, and optional structured `details` for validation failures.
 - `POST` updates remain compatible by default. Set `settings.legacyPostUpdate: false` to require `PATCH /:id`.
 - Set `settings.softDelete` to retain deleted documents. Soft-deleted records are hidden from generated reads by default.
-- For a full breaking-change summary, see the [2.0 migration note](docs/v1-migration.md).
+- For v1-to-v2 upgrade guidance and the v3 feature summary, see the [migration guide](docs/v2-migration.md).
 
 ## License
 

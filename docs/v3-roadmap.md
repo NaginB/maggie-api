@@ -1,8 +1,8 @@
-# Version 2 roadmap
+# Version 3 roadmap
 
 This roadmap focuses on making `maggie-api` safer to expose publicly, easier to customize, and more useful for production applications. Items are ordered by recommended delivery priority rather than implementation difficulty.
 
-## V2 launch scope
+## V3 launch scope
 
 - [x] **Add PUT replacement semantics.** Keep `POST` compatibility updates opt-in, retain PATCH for partial updates, and offer an explicit replacement route only with clear validation rules.
 - [x] **Add configurable soft deletes.** Support `deletedAt` and `deletedBy` for models that require recoverability.
@@ -26,7 +26,7 @@ This roadmap focuses on making `maggie-api` safer to expose publicly, easier to 
 
 These features can make the library more compelling than a simple CRUD generator. Select one or two rather than launching all of them at once.
 
-- [ ] **OpenAPI generation.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses. This is the strongest candidate for a visible v2 feature.
+- [ ] **OpenAPI generation.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses. This is the strongest candidate for a visible v3 feature.
 - [ ] **Admin-ready metadata endpoint.** Expose optional, protected metadata describing each resource’s fields, permitted operations, filters, sorting, and pagination. An admin dashboard can use it to build tables and forms dynamically.
 - [ ] **Declarative relations.** Add relation configuration for population, nested resource routes, and safe relation-aware filtering.
 - [ ] **Multi-tenancy.** Offer a first-class tenant resolver that automatically scopes all reads and writes to a tenant field.
@@ -35,14 +35,14 @@ These features can make the library more compelling than a simple CRUD generator
 
 ## Recommended release sequence
 
-1. Stabilize the v1 contract with integration tests and a published behavior matrix.
-2. Build the V2 launch scope, retaining a documented v1 compatibility mode where practical.
+1. Stabilize the v2 contract with integration tests and a published behavior matrix.
+2. Build the V3 launch scope, retaining a documented v2 compatibility mode where practical.
 3. Launch **OpenAPI generation** as the headline feature, alongside secure query controls and standard CRUD verbs.
 4. Follow with authorization/scoping and bulk-operation improvements based on adopters’ needs.
 
 ## Decisions to make before implementation
 
-- [ ] Decide whether v2 is a breaking major release or exposes a compatibility flag for v1 route behavior.
+- [ ] Decide whether v3 is a breaking major release or exposes a compatibility flag for v2 route behavior.
 - [ ] Choose the validation direction: Joi-only, optional Joi/Zod adapters, or schema-derived validation as a separate package.
 - [ ] Define the default security posture: strict allow-lists and rejected invalid queries are recommended for a public API library.
 - [ ] Decide whether OpenAPI generation belongs in the core package or an `@maggie-api/openapi` companion package.

@@ -141,7 +141,7 @@ export const createOpenApiDocument = (
     openapi: "3.1.0",
     info: {
       title: options.title || "Maggie API",
-      version: options.version || "2.0.0",
+      version: options.version || "3.0.0",
       ...(options.description ? { description: options.description } : {}),
     },
     paths,

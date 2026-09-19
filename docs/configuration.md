@@ -50,7 +50,7 @@ import { createOpenApiDocument } from "maggie-api";
 
 const openapi = createOpenApiDocument(maggiePayload, {
   title: "Members API",
-  version: "2.0.0",
+  version: "3.0.0",
 });
 ```
 
@@ -70,7 +70,7 @@ settings: {
 
 ## Additional filter operators
 
-Filters remain allow-listed per field. In addition to `eq`, `in`, and range operators, v2 supports `ne`, `nin`, and `exists`. `regex` is available only when it appears in a field's `operators` list and `allowRegex: true` is set for that field. Logical groups are disabled by default; explicitly configure `logicalOperators: ["or", "and"]` and use `filter[$or][0][field]=value` or `filter[$and][0][field]=value`.
+Filters remain allow-listed per field. In addition to `eq`, `in`, and range operators, v3 supports `ne`, `nin`, and `exists`. `regex` is available only when it appears in a field's `operators` list and `allowRegex: true` is set for that field. Logical groups are disabled by default; explicitly configure `logicalOperators: ["or", "and"]` and use `filter[$or][0][field]=value` or `filter[$and][0][field]=value`.
 
 ## Cursor pagination
 

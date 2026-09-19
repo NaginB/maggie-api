@@ -1,6 +1,6 @@
-# Version 1 maintenance checklist
+# Version 2 maintenance checklist
 
-This checklist records defects and maintenance work identified in the current v1 codebase. Items marked complete were corrected in this repository; the remaining items should be prioritized before a broader public rollout.
+This checklist records the defects and maintenance work completed for the version 2 codebase before the version 3 release.
 
 ## Correctness fixes completed
 
@@ -44,6 +44,6 @@ This checklist records defects and maintenance work identified in the current v1
 ## Documentation checklist
 
 - [x] Replace the corrupted and inaccurate consumer README.
-- [x] Add architecture, configuration, API behavior, development, and v2 roadmap documents.
+- [x] Add architecture, configuration, API behavior, development, and v3 roadmap documents.
 - [x] Update [API behavior](api-behavior.md) after every response-contract change.
 - [x] Maintain a changelog and a migration note for behavior changes that affect consumers.

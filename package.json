@@ -1,6 +1,6 @@
 {
   "name": "maggie-api",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "🧙‍♀️ A magical Express middleware to auto-generate CRUD APIs for Mongoose models with validation, unique keys, and middlewares.",
   "type": "commonjs",
   "main": "dist/index.js",

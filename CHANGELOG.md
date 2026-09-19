@@ -1,7 +1,7 @@
 # Changelog
 
-## 2.0.0 - 2026-09-18
+## 3.0.0 - 2026-09-19
 
-- Added PATCH updates, schema validation on updates, typed error envelopes, request IDs, logging hooks, and configurable delete semantics.
-- Hardened search, filtering, sorting, pagination, bulk input, duplicate-key handling, and pluralization.
-- Added tests, linting, formatting, CI, package-content validation, and public type exports.
+- Added explicit PUT replacement, soft deletes, cursor pagination, OpenAPI generation, authorization and policy hooks, lifecycle metadata, client projection/population controls, and expanded bulk operations.
+- Added field permissions, query scopes, schema-derived Joi validation, advanced allow-listed filters, and structured audit logging.
+- Preserved v2 CRUD compatibility while moving the package to the v3 public API surface.
