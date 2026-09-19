@@ -92,6 +92,20 @@ const createMaggie = ({
         ...bulkMiddleware,
         asHandler(controller.insertMany),
       );
+      if (settingsObj.bulk?.allowUpdate)
+        subRouter.patch(
+          "/bulk",
+          authorize("bulk"),
+          ...middleWares,
+          asHandler(controller.bulkUpdate),
+        );
+      if (settingsObj.bulk?.allowDelete)
+        subRouter.delete(
+          "/bulk",
+          authorize("bulk"),
+          ...middleWares,
+          asHandler(controller.bulkDelete),
+        );
       subRouter.patch(
         "/:id",
         authorize("update"),

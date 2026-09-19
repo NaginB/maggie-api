@@ -59,6 +59,15 @@ export interface CursorPaginationConfig {
   direction?: "asc" | "desc";
   maxLimit?: number;
 }
+export interface ClientProjectionConfig {
+  allowedFields: string[];
+  maxFields?: number;
+}
+export interface ClientPopulateConfig {
+  allowedPaths: string[];
+  maxPaths?: number;
+  maxDepth?: number;
+}
 export interface SoftDeleteConfig {
   /** Field that stores the deletion time. Defaults to `deletedAt`. */
   deletedAt?: string;
@@ -99,7 +108,16 @@ export interface FieldPermissions {
 export interface LifecycleMetadataConfig {
   createdBy?: string;
   updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  audit?: boolean;
   getActor?: (req: Request) => unknown;
+}
+export interface BulkConfig {
+  ordered?: boolean;
+  atomic?: boolean;
+  allowUpdate?: boolean;
+  allowDelete?: boolean;
 }
 export interface ListSettings {
   populate?: PopulateField[];
@@ -109,6 +127,8 @@ export interface ListSettings {
   sort?: SortConfig;
   maxLimit?: number;
   cursorPagination?: CursorPaginationConfig;
+  clientProjection?: ClientProjectionConfig;
+  clientPopulate?: ClientPopulateConfig;
 }
 export interface APISettings {
   get?: ListSettings;
@@ -122,6 +142,11 @@ export interface APISettings {
   authorize?: Partial<Record<MaggieOperation, MaggieAuthorizer>>;
   permissions?: FieldPermissions;
   lifecycle?: LifecycleMetadataConfig;
+  bulk?: BulkConfig;
+  queryScope?: (
+    req: Request,
+    operation: "read" | "update" | "replace" | "delete",
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
 }
 export interface MaggieModelPayload {
   model: Model<any>;

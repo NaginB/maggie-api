@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { Model } from "mongoose";
 import {
   createDoc,
+  bulkDelete,
+  bulkUpdate,
   deleteById,
   getAll,
   getById,
@@ -29,14 +31,27 @@ export const createController = (
   const lifecycleData = (req: Request, body: any, create = false) => {
     const lifecycle = settings.lifecycle;
     const actor = lifecycle?.getActor?.(req);
-    if (!lifecycle || actor === undefined) return body;
+    if (!lifecycle) return body;
+    const now = new Date();
     return {
       ...body,
       ...(create && lifecycle.createdBy
         ? { [lifecycle.createdBy]: actor }
         : {}),
       ...(lifecycle.updatedBy ? { [lifecycle.updatedBy]: actor } : {}),
+      ...(create && lifecycle.createdAt ? { [lifecycle.createdAt]: now } : {}),
+      ...(lifecycle.updatedAt ? { [lifecycle.updatedAt]: now } : {}),
     };
+  };
+  const audit = (req: Request, action: string) => {
+    if (!settings.lifecycle?.audit) return;
+    logger?.info?.({
+      level: "info",
+      message: `${modelName} ${action}`,
+      requestId: req.header("x-request-id") || undefined,
+      method: req.method,
+      path: req.originalUrl,
+    });
   };
   const writableData = (body: any) => {
     const writable = settings.permissions?.writable;
@@ -84,6 +99,7 @@ export const createController = (
     if (!result)
       return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
     await runHook("afterUpdate", req, "update", body, result);
+    audit(req, "updated");
     return res.status(200).json({
       success: true,
       statusCode: 200,
@@ -105,6 +121,7 @@ export const createController = (
     if (!result)
       return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
     await runHook("afterUpdate", req, "replace", body, result);
+    audit(req, "replaced");
     return res.status(200).json({
       success: true,
       statusCode: 200,
@@ -113,6 +130,50 @@ export const createController = (
     });
   };
   return {
+    bulkUpdate: async (req: Request, res: Response) => {
+      try {
+        const { filter, update } = req.body || {};
+        if (!filter || !update)
+          return sendError(
+            req,
+            res,
+            400,
+            "VALIDATION_ERROR",
+            "filter and update are required",
+          );
+        const result = await bulkUpdate(model, filter, writableData(update));
+        return res.status(200).json({
+          success: true,
+          statusCode: 200,
+          message: `${modelName} documents updated`,
+          data: result,
+        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
+      }
+    },
+    bulkDelete: async (req: Request, res: Response) => {
+      try {
+        const { filter } = req.body || {};
+        if (!filter)
+          return sendError(
+            req,
+            res,
+            400,
+            "VALIDATION_ERROR",
+            "filter is required",
+          );
+        const result = await bulkDelete(model, filter);
+        return res.status(200).json({
+          success: true,
+          statusCode: 200,
+          message: `${modelName} documents deleted`,
+          data: result,
+        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
+      }
+    },
     addOrUpdate: async (req: Request, res: Response) => {
       try {
         const { _id, ...body } = req.body;
@@ -132,6 +193,7 @@ export const createController = (
         if (await checkPrimaryKey(req, res, input)) return;
         const result = await createDoc(model, input);
         await runHook("afterCreate", req, "create", input, result);
+        audit(req, "created");
         return res.status(201).json({
           success: true,
           statusCode: 201,
@@ -176,6 +238,7 @@ export const createController = (
             `${modelName} not found`,
           );
         await runHook("afterDelete", req, "delete", undefined, result);
+        audit(req, "deleted");
         if (settings.deleteStatus === 204) return res.status(204).send();
         return res.status(200).json({
           success: true,
@@ -202,7 +265,7 @@ export const createController = (
     },
     getById: async (req: Request, res: Response) => {
       try {
-        const result = await getById(model, req.params.id, settings);
+        const result = await getById(model, req.params.id, settings, req);
         if (!result)
           return sendError(
             req,
@@ -276,7 +339,7 @@ export const createController = (
               { values: existing.map((doc: any) => doc[key]) },
             );
         }
-        const result = await insertMany(model, docs);
+        const result = await insertMany(model, docs, settings.bulk);
         return res.status(201).json({
           success: true,
           statusCode: 201,

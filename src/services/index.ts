@@ -21,6 +21,10 @@ export const replaceDoc = (model: Model<any>, id: string, data: any) =>
   });
 export const deleteById = (model: Model<any>, id: string) =>
   model.findByIdAndDelete(id);
+export const bulkUpdate = (model: Model<any>, filter: any, update: any) =>
+  model.updateMany(filter, update, { runValidators: true });
+export const bulkDelete = (model: Model<any>, filter: any) =>
+  model.deleteMany(filter);
 export const softDeleteById = (
   model: Model<any>,
   id: string,
@@ -36,8 +40,27 @@ export const softDeleteById = (
     runValidators: true,
   });
 };
-export const insertMany = (model: Model<any>, docs: any[]) =>
-  model.insertMany(docs);
+export const insertMany = async (
+  model: Model<any>,
+  docs: any[],
+  options: { ordered?: boolean; atomic?: boolean } = {},
+) => {
+  if (!options.atomic)
+    return model.insertMany(docs, { ordered: options.ordered ?? true });
+  const session = await model.db.startSession();
+  try {
+    let result: any[] = [];
+    await session.withTransaction(async () => {
+      result = await model.insertMany(docs, {
+        ordered: options.ordered ?? true,
+        session,
+      });
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
 
 const castValue = (
   value: unknown,
@@ -228,7 +251,11 @@ export const getAll = async (
   settings: ISetting,
   req: Request,
 ) => {
-  let query = model.find(activeDocumentCondition(settings.softDelete));
+  const scope = await settings.queryScope?.(req, "read");
+  let query = model.find({
+    ...activeDocumentCondition(settings.softDelete),
+    ...(scope || {}),
+  });
   const url = new URL(
     req.originalUrl,
     `http://${req.headers.host || "localhost"}`,
@@ -236,6 +263,35 @@ export const getAll = async (
   const queryParams = parse(url.searchParams.toString());
   const readable = settings.permissions?.readable || settings.getKeys;
   if (readable.length) query = query.select(readable.join(" "));
+  const projection = settings.get?.clientProjection;
+  const requestedFields =
+    typeof queryParams.fields === "string"
+      ? queryParams.fields
+          .split(",")
+          .map((field) => field.trim())
+          .filter(Boolean)
+      : [];
+  if (requestedFields.length) {
+    if (
+      !projection ||
+      requestedFields.some((field) => !projection.allowedFields.includes(field))
+    )
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        "A requested projection field is not allowed",
+      );
+    if (
+      requestedFields.length >
+      (projection.maxFields ?? projection.allowedFields.length)
+    )
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        "Too many projection fields requested",
+      );
+    query = query.select(requestedFields.join(" "));
+  }
   const rawFilter = queryParams.filter;
   const filterConfig = settings.permissions?.filterable
     ? {
@@ -387,8 +443,45 @@ export const getAll = async (
       query = query.find({ $or: fields.map((field) => ({ [field]: regex })) });
     }
   }
-  for (const populate of settings.get?.populate || [])
-    query = query.populate(populate);
+  const configuredPopulate = settings.get?.populate || [];
+  const requestedPopulate =
+    typeof queryParams.populate === "string"
+      ? queryParams.populate
+          .split(",")
+          .map((path) => path.trim())
+          .filter(Boolean)
+      : [];
+  const population = settings.get?.clientPopulate;
+  if (requestedPopulate.length && !population)
+    throw new HttpError(400, "QUERY_ERROR", "Client population is not enabled");
+  if (requestedPopulate.length > (population?.maxPaths ?? 0))
+    throw new HttpError(
+      400,
+      "QUERY_ERROR",
+      "Too many population paths requested",
+    );
+  for (const path of requestedPopulate.length
+    ? requestedPopulate
+    : configuredPopulate.map((item) => item.path)) {
+    if (requestedPopulate.length && !population?.allowedPaths.includes(path))
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        `Population path ${path} is not allowed`,
+      );
+    if (
+      requestedPopulate.length &&
+      path.split(".").length > (population?.maxDepth ?? 1)
+    )
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        "Population depth exceeds the configured maximum",
+      );
+    query = query.populate(
+      configuredPopulate.find((item) => item.path === path) || { path },
+    );
+  }
   if (typeof queryParams.sort === "string" && queryParams.sort) {
     const allowed = new Set(
       settings.permissions?.sortable || settings.get?.sort?.allowedFields || [],
@@ -505,10 +598,13 @@ export const getById = async (
   model: Model<any>,
   id: string,
   settings: ISetting,
+  req: Request,
 ) => {
+  const scope = await settings.queryScope?.(req, "read");
   let query = model.findOne({
     _id: id,
     ...activeDocumentCondition(settings.softDelete),
+    ...(scope || {}),
   });
   const readable = settings.permissions?.readable || settings.getByIdKeys;
   if (readable.length) query = query.select(readable.join(" "));

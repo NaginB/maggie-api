@@ -2,6 +2,9 @@ export type {
   APISettings,
   ApiResponse,
   ControllerSettings,
+  ClientPopulateConfig,
+  ClientProjectionConfig,
+  BulkConfig,
   CursorPaginationConfig,
   ErrorCode,
   FilterConfig,
@@ -26,5 +29,6 @@ export type {
   SortConfig,
 } from "./utils/interface";
 export { default as createMaggie } from "./routes";
+export { joiSchemaFromMongoose } from "./utils/schema";
 export { createOpenApiDocument } from "./openapi";
 export type { OpenApiOptions } from "./openapi";
