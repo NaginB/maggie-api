@@ -189,7 +189,7 @@ const buildFilterConditions = (
       continue;
     }
     if (!allowedFields.has(field)) {
-      if (filterConfig?.strict)
+      if (filterConfig?.strict !== false)
         throw new HttpError(
           400,
           "QUERY_ERROR",
@@ -217,7 +217,7 @@ const buildFilterConditions = (
       const range: Record<string, unknown> = {};
       for (const [op, value] of Object.entries(raw)) {
         if (!operators.has(op as any)) {
-          if (filterConfig?.strict)
+          if (filterConfig?.strict !== false)
             throw new HttpError(
               400,
               "QUERY_ERROR",
@@ -343,7 +343,7 @@ export const getAll = async (
         continue;
       }
       if (!allowedFields.has(field)) {
-        if (filterConfig?.strict)
+        if (filterConfig?.strict !== false)
           throw new HttpError(
             400,
             "QUERY_ERROR",
@@ -369,7 +369,7 @@ export const getAll = async (
         const range: Record<string, unknown> = {};
         for (const [op, value] of Object.entries(raw)) {
           if (!operators.has(op as any)) {
-            if (filterConfig?.strict)
+            if (filterConfig?.strict !== false)
               throw new HttpError(
                 400,
                 "QUERY_ERROR",
@@ -408,7 +408,7 @@ export const getAll = async (
               );
             }
           } else {
-            if (filterConfig?.strict)
+            if (filterConfig?.strict !== false)
               throw new HttpError(
                 400,
                 "QUERY_ERROR",
@@ -452,6 +452,12 @@ export const getAll = async (
         : [];
     const allowed =
       settings.permissions?.searchable || searchConfig?.allowedFields || [];
+    if (requested.some((field) => !allowed.includes(field)))
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        "A requested search field is not allowed",
+      );
     const fields = requested.length
       ? requested.filter((field) => allowed.includes(field))
       : allowed;

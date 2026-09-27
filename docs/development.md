@@ -2,10 +2,10 @@
 
 ## Prerequisites
 
-- Node.js 20 or later.
+- Node.js 20, 22, or 24 (`>=20 <25`).
 - npm; use the committed lockfile with `npm ci`.
 
-The supported package ranges are Express 5, Mongoose 8, and Joi 17. CI verifies Node 20, 22, and 24.
+The supported package ranges are Express `>=5 <6`, Mongoose `>=8 <9`, and Joi `>=17 <18`. CI verifies Node 20, 22, and 24 against both the minimum supported Mongoose 8 release and latest Mongoose 8.
 
 ## Local workflow
 

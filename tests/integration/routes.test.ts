@@ -311,6 +311,14 @@ describe("generated routes", () => {
     expect(
       (
         await request(governedApp)
+          .get("/api/governed-records?filter[title]=one")
+          .set("x-can-read", "yes")
+          .set("x-owner", "one")
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(governedApp)
           .patch("/api/governed-records/bulk")
           .set("x-can-bulk", "yes")
           .set("x-owner", "one")
@@ -408,6 +416,10 @@ describe("generated routes", () => {
     expect(secondCursorPage.body.data.members).toHaveLength(1);
     expect(secondCursorPage.body.data.members[0].name).toBe("Bee");
     expect((await request(app).get("/api/people?sort=email")).status).toBe(400);
+    expect(
+      (await request(app).get("/api/people?search=Bee&searchFields=email"))
+        .status,
+    ).toBe(400);
     expect(
       (await request(app).get("/api/people?filter[age][gte]=bad")).status,
     ).toBe(400);

@@ -8,7 +8,7 @@
 npm install maggie-api express mongoose joi
 ```
 
-`express` 5, `mongoose` 8, and `joi` 17 are peer dependencies; install them in the application that uses Maggie. Your application must connect Mongoose to MongoDB before handling requests. Node.js 20 or later is required.
+`express` 5, `mongoose` 8, and `joi` 17 are peer dependencies; install them in the application that uses Maggie. Your application must connect Mongoose to MongoDB before handling requests. Supported Node.js versions are 20, 22, and 24.
 
 ## Quick start
 

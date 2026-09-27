@@ -42,8 +42,8 @@ These features can make the library more compelling than a simple CRUD generator
 
 ## Decisions to make before implementation
 
-- [ ] Decide whether v3 is a breaking major release or exposes a compatibility flag for v2 route behavior.
-- [ ] Choose the validation direction: Joi-only, optional Joi/Zod adapters, or schema-derived validation as a separate package.
-- [ ] Define the default security posture: strict allow-lists and rejected invalid queries are recommended for a public API library.
-- [ ] Decide whether OpenAPI generation belongs in the core package or an `@maggie-api/openapi` companion package.
-- [ ] Define a supported Node.js and Mongoose version range, then enforce it with CI.
+- [x] **Compatibility:** v3 retains the v2 route and response contract. `legacyPostUpdate` defaults to enabled; applications can disable it per resource when clients have moved to PATCH. This makes v3 an additive major release rather than a forced route migration.
+- [x] **Validation:** Joi is the sole validation runtime in the core package. Manual Joi schemas remain the primary API, and `joiSchemaFromMongoose` supplies optional schema-derived Joi validation. Zod adapters are deferred until there is a separate package and a compatibility commitment.
+- [x] **Security posture:** all client-controlled fields are deny-by-default. Unknown filter operators/fields and requested search fields are rejected with `400 QUERY_ERROR` unless the relevant allow-list explicitly permits them. `strict: false` is the explicit compatibility escape hatch for filters.
+- [x] **OpenAPI packaging:** OpenAPI generation remains in the core package as `createOpenApiDocument`, keeping the API specification exactly aligned with router configuration without an additional versioned dependency.
+- [x] **Runtime support:** support Node.js `>=20 <25` and Mongoose `>=8 <9` (with Express `>=5 <6` and Joi `>=17 <18`). CI verifies Node 20, 22, and 24 against both the minimum supported and latest Mongoose 8 releases.

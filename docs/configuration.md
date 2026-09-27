@@ -37,7 +37,7 @@ settings: {
 }
 ```
 
-`filter.allowedFields` remains supported for simple string filters. Prefer `filter.fields` for explicit value types and operator restrictions. Supported types are `string`, `number`, `boolean`, `date`, and `objectId`; supported operators are `eq`, `in`, `gte`, `lte`, `gt`, and `lt`.
+`filter.allowedFields` remains supported for simple string filters. Prefer `filter.fields` for explicit value types and operator restrictions. Supported types are `string`, `number`, `boolean`, `date`, and `objectId`; supported operators are `eq`, `in`, `gte`, `lte`, `gt`, and `lt`. Filters reject unknown fields and operators by default; set `strict: false` only for a deliberate compatibility policy.
 
 All public configuration and response interfaces are exported from the package root.
 

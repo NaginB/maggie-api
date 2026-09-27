@@ -31,7 +31,8 @@ When `settings.softDelete` is configured, DELETE sets the configured deletion ti
 - Pagination activates only when both `limit` and `page` are strictly positive integers. `limit` may not exceed `settings.get.maxLimit` (default `100`).
 - Cursor pagination is opt-in through `settings.get.cursorPagination`. Start with `cursor=start`; responses return `cursorPagination.nextCursor` until the final page.
 - Search is literal and case-insensitive by default. Search text is escaped and limited to `search.maxLength` (default `100`). Set `search.allowRegex: true` only for trusted advanced-regex clients.
-- Filtering is opt-in. `filter.fields` defines field types and allowed operators; values are cast before querying. With `filter.strict: true`, an unknown field or operator returns `400`.
+- Filtering is opt-in. `filter.fields` defines field types and allowed operators; values are cast before querying. Unknown fields and operators return `400` by default; set `filter.strict: false` to ignore them for a compatibility policy.
+- `searchFields` is also allow-listed. Requesting an unconfigured search field returns `400 QUERY_ERROR` rather than silently broadening or changing a search.
 - Sorting is allow-listed by `sort.allowedFields`. It rejects unlisted fields by default; set `sort.strict: false` to ignore them instead.
 - Field filters can additionally allow `ne`, `nin`, `exists`, and explicitly opted-in `regex` operators.
 - The list response key uses `settings.responseKey` when configured. Otherwise it uses full English pluralization of the lowercase model name.
