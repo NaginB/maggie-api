@@ -26,12 +26,12 @@ This roadmap focuses on making `maggie-api` safer to expose publicly, easier to 
 
 These features can make the library more compelling than a simple CRUD generator. Select one or two rather than launching all of them at once.
 
-- [ ] **OpenAPI generation.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses. This is the strongest candidate for a visible v3 feature.
-- [ ] **Admin-ready metadata endpoint.** Expose optional, protected metadata describing each resource’s fields, permitted operations, filters, sorting, and pagination. An admin dashboard can use it to build tables and forms dynamically.
-- [ ] **Declarative relations.** Add relation configuration for population, nested resource routes, and safe relation-aware filtering.
-- [ ] **Multi-tenancy.** Offer a first-class tenant resolver that automatically scopes all reads and writes to a tenant field.
-- [ ] **Change events.** Add optional webhooks or event-emitter callbacks for create, update, delete, and bulk operations.
-- [ ] **Caching hooks.** Provide cache-key and invalidation hooks for list and by-id reads without tying the package to a specific cache provider.
+- [x] **OpenAPI generation.** Produce an OpenAPI 3.1 document from the Maggie configuration, including schemas, routes, query parameters, and error responses. This is the strongest candidate for a visible v3 feature.
+- [x] **Admin-ready metadata endpoint.** Expose an opt-in, protected metadata endpoint describing each resource’s fields, operations, filters, sorting, pagination, and relations.
+- [x] **Declarative relations.** Add relation configuration for population, nested resource routes, and safe relation-aware filtering.
+- [x] **Multi-tenancy.** Offer a first-class tenant resolver that automatically scopes all reads and writes to a tenant field.
+- [x] **Change events.** Add optional event-emitter callbacks for create, update, delete, and bulk operations.
+- [x] **Caching hooks.** Provide cache-key and invalidation hooks for list and by-id reads without tying the package to a specific cache provider.
 
 ## Recommended release sequence
 

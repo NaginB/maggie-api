@@ -50,6 +50,13 @@ const MiddlewarePerson = mongoose.model(
   new Schema({ name: { type: String, required: true } }),
 );
 const middlewareOrder: string[] = [];
+const TenantRecord = mongoose.model(
+  "TenantRecordForV3",
+  new Schema({ tenantId: { type: String, required: true }, title: String }),
+);
+const changes: string[] = [];
+const cachedResponses = new Map<string, unknown>();
+let invalidations = 0;
 const app = express();
 app.use(express.json());
 app.use(
@@ -101,6 +108,7 @@ patchOnlyApp.use(
   createMaggie({
     prefix: "/api",
     requestId: (req) => req.header("x-custom-request") || undefined,
+    metadata: { authorize: (req) => req.header("x-admin") === "yes" },
     models: [
       {
         model: PatchOnly,
@@ -110,6 +118,15 @@ patchOnlyApp.use(
         }),
       },
       { model: UniqueOnly, path: "unique-only" },
+      {
+        model: Department,
+        path: "departments",
+        settings: {
+          relations: [
+            { path: "employees", model: Employee, foreignField: "department" },
+          ],
+        },
+      },
       { model: NoContent, path: "no-content", settings: { deleteStatus: 204 } },
       {
         model: SoftPerson,
@@ -145,6 +162,36 @@ patchOnlyApp.use(
     ],
   }),
 );
+const tenantApp = express();
+tenantApp.use(express.json());
+tenantApp.use(
+  createMaggie({
+    prefix: "/api",
+    models: [
+      {
+        model: TenantRecord,
+        path: "records",
+        settings: {
+          tenant: {
+            field: "tenantId",
+            resolve: (req) => req.header("x-tenant"),
+          },
+          events: { onChange: ({ operation }) => changes.push(operation) },
+          cache: {
+            key: ({ operation, req, id }) =>
+              `${operation}:${req.header("x-tenant")}:${id || req.originalUrl}`,
+            get: (key) => cachedResponses.get(key),
+            set: (key, value) => void cachedResponses.set(key, value),
+            invalidate: () => {
+              invalidations += 1;
+              cachedResponses.clear();
+            },
+          },
+        },
+      },
+    ],
+  }),
+);
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
@@ -157,6 +204,72 @@ afterAll(async () => {
 });
 
 describe("generated routes", () => {
+  it("protects metadata and serves declared nested relations", async () => {
+    expect((await request(patchOnlyApp).get("/api/_meta")).status).toBe(403);
+    const metadata = await request(patchOnlyApp)
+      .get("/api/_meta")
+      .set("x-admin", "yes");
+    expect(metadata.status).toBe(200);
+    expect(metadata.body.data.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "DepartmentForV2" }),
+      ]),
+    );
+    const department = await Department.create({ name: "Nested" });
+    await Employee.create({
+      name: "Nested employee",
+      department: department._id,
+    });
+    const nested = await request(patchOnlyApp).get(
+      `/api/departments/${department._id}/employees`,
+    );
+    expect(nested.status).toBe(200);
+    expect(nested.body.data.employeeforv2s).toHaveLength(1);
+  });
+
+  it("enforces tenant isolation and invokes event and cache hooks", async () => {
+    const created = await request(tenantApp)
+      .post("/api/records")
+      .set("x-tenant", "one")
+      .send({ title: "private" });
+    expect(created.status).toBe(201);
+    expect(created.body.data.tenantId).toBe("one");
+    const id = created.body.data._id;
+    expect(
+      (
+        await request(tenantApp)
+          .post("/api/records")
+          .set("x-tenant", "one")
+          .send({ title: "wrong", tenantId: "two" })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(tenantApp)
+          .get(`/api/records/${id}`)
+          .set("x-tenant", "two")
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(tenantApp)
+          .patch(`/api/records/${id}`)
+          .set("x-tenant", "one")
+          .send({ tenantId: "two" })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(tenantApp)
+          .patch(`/api/records/${id}`)
+          .set("x-tenant", "one")
+          .send({ title: "updated" })
+      ).status,
+    ).toBe(200);
+    expect(changes).toEqual(expect.arrayContaining(["create", "update"]));
+    expect(invalidations).toBeGreaterThanOrEqual(2);
+  });
+
   it("creates, reads, patches and deletes with stable envelopes", async () => {
     const created = await request(app)
       .post("/api/people")
@@ -329,9 +442,11 @@ describe("generated routes", () => {
     const department = await Department.create({ name: "Engineering" });
     await Employee.create({ name: "Ada", department: department.id });
     const employees = await request(patchOnlyApp).get("/api/employees");
-    expect(employees.body.data.employeeforv2s[0].department.name).toBe(
-      "Engineering",
-    );
+    expect(
+      employees.body.data.employeeforv2s.find(
+        (employee: any) => employee.name === "Ada",
+      ).department.name,
+    ).toBe("Engineering");
 
     middlewareOrder.length = 0;
     const response = await request(patchOnlyApp)

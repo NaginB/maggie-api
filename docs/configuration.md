@@ -54,6 +54,57 @@ const openapi = createOpenApiDocument(maggiePayload, {
 });
 ```
 
+## Metadata endpoint
+
+Metadata is opt-in and requires an authorizer, preventing accidental exposure of model structure. It is served at `${prefix}/_meta` by default and reports fields, available operations, query controls, pagination, and declared relations.
+
+```ts
+createMaggie({
+  prefix: "/api",
+  metadata: { authorize: (req) => req.user?.role === "admin" },
+  models,
+});
+```
+
+## Relations
+
+Declare a related Mongoose model to expose a read-only nested list. The related list is always constrained by `foreignField`; its optional `filter` is parsed with the same allow-list protections as a normal list route.
+
+```ts
+settings: {
+  relations: [{
+    path: "comments",
+    model: Comment,
+    foreignField: "postId",
+    filter: { strict: true, fields: { published: { type: "boolean" } } },
+    populate: [{ path: "author", select: ["name"] }],
+  }],
+}
+// GET /api/posts/:id/comments?filter[published]=true
+```
+
+## Tenancy, events, and caching
+
+`tenant` resolves a value for every request. Maggie writes it on creates, rejects tenant-field changes, and scopes list, by-id, update, replace, delete, and bulk mutations. A missing value is rejected unless `required: false` is set.
+
+```ts
+settings: {
+  tenant: { field: "tenantId", resolve: (req) => req.user?.tenantId },
+  events: {
+    onChange: async ({ operation, document }) => audit(operation, document),
+    // An EventEmitter-style `emit(operation, event)` is also supported.
+  },
+  cache: {
+    key: ({ operation, req, id }) => `${operation}:${req.user.id}:${id ?? req.originalUrl}`,
+    get: (key) => cache.get(key),
+    set: (key, value) => cache.set(key, value),
+    invalidate: () => cache.clear(),
+  },
+}
+```
+
+The cache integration is intentionally provider-neutral. Reads are cached only when `key` returns a key; successful mutations call `invalidate`.
+
 ## Soft deletes
 
 Set `softDelete` to retain deleted documents while excluding them from generated list and by-id reads. `deletedAt` defaults to `"deletedAt"`; `deletedBy` and `getDeletedBy` are optional.

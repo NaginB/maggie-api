@@ -13,7 +13,11 @@ import {
   updateDoc,
 } from "../services";
 import { handleError, HttpError, sendError } from "../utils/errors";
-import { ControllerSettings, MaggieLogger } from "../utils/interface";
+import {
+  ControllerSettings,
+  MaggieLogger,
+  MaggieOperation,
+} from "../utils/interface";
 
 export const createController = (
   model: Model<any>,
@@ -21,6 +25,58 @@ export const createController = (
   logger?: MaggieLogger,
 ) => {
   const modelName = model.modelName;
+  const tenantScope = async (req: Request) => {
+    const tenant = settings.tenant;
+    if (!tenant) return {};
+    const value = await tenant.resolve(req);
+    if ((value === undefined || value === null) && tenant.required !== false)
+      throw new HttpError(403, "FORBIDDEN", "Tenant could not be resolved");
+    return value === undefined || value === null
+      ? {}
+      : { [tenant.field]: value };
+  };
+  const tenantData = async (req: Request, body: any, create = false) => {
+    const tenant = settings.tenant;
+    if (!tenant) return body;
+    const scope = await tenantScope(req);
+    const value = scope[tenant.field];
+    if (!create && Object.prototype.hasOwnProperty.call(body, tenant.field))
+      throw new HttpError(403, "FORBIDDEN", "Tenant field cannot be changed");
+    if (
+      create &&
+      body[tenant.field] !== undefined &&
+      String(body[tenant.field]) !== String(value)
+    )
+      throw new HttpError(
+        403,
+        "FORBIDDEN",
+        "Tenant field does not match request tenant",
+      );
+    return create && value !== undefined
+      ? { ...body, [tenant.field]: value }
+      : body;
+  };
+  const mutationScope = async (
+    req: Request,
+    operation: "update" | "replace" | "delete",
+  ) => ({
+    ...(await settings.queryScope?.(req, operation)),
+    ...(await tenantScope(req)),
+  });
+  const emitChange = async (
+    operation: MaggieOperation,
+    req: Request,
+    input?: any,
+    document?: unknown,
+  ) => {
+    const event = { operation, req, model, input, document };
+    const events = settings.events;
+    await events?.onChange?.(event);
+    await (events as Record<string, any> | undefined)?.[operation]?.(event);
+    events?.emit?.(operation, event);
+  };
+  const invalidate = async (req: Request) =>
+    settings.cache?.invalidate({ operation: "invalidate", req, model });
   const runHook = async (
     name: keyof NonNullable<ControllerSettings["hooks"]>,
     req: Request,
@@ -83,7 +139,10 @@ export const createController = (
   ): Promise<boolean> => {
     const key = settings.primaryKey;
     if (!key || body[key] === undefined || body[key] === null) return false;
-    const existing = await model.findOne({ [key]: body[key] });
+    const existing = await model.findOne({
+      [key]: body[key],
+      ...(await tenantScope(req)),
+    });
     if (existing && (!id || String(existing._id) !== id)) {
       conflict(req, res);
       return true;
@@ -92,13 +151,21 @@ export const createController = (
   };
   const update = async (req: Request, res: Response, id: string, body: any) => {
     body = writableData(body);
+    body = await tenantData(req, body);
     body = lifecycleData(req, body);
     await runHook("beforeUpdate", req, "update", body);
     if (await checkPrimaryKey(req, res, body, id)) return;
-    const result = await updateDoc(model, id, body);
+    const result = await updateDoc(
+      model,
+      id,
+      body,
+      await mutationScope(req, "update"),
+    );
     if (!result)
       return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
     await runHook("afterUpdate", req, "update", body, result);
+    await emitChange("update", req, body, result);
+    await invalidate(req);
     audit(req, "updated");
     return res.status(200).json({
       success: true,
@@ -114,13 +181,21 @@ export const createController = (
     body: any,
   ) => {
     body = writableData(body);
+    body = await tenantData(req, body);
     body = lifecycleData(req, body);
     await runHook("beforeUpdate", req, "replace", body);
     if (await checkPrimaryKey(req, res, body, id)) return;
-    const result = await replaceDoc(model, id, body);
+    const result = await replaceDoc(
+      model,
+      id,
+      body,
+      await mutationScope(req, "replace"),
+    );
     if (!result)
       return sendError(req, res, 404, "NOT_FOUND", `${modelName} not found`);
     await runHook("afterUpdate", req, "replace", body, result);
+    await emitChange("replace", req, body, result);
+    await invalidate(req);
     audit(req, "replaced");
     return res.status(200).json({
       success: true,
@@ -141,7 +216,23 @@ export const createController = (
             "VALIDATION_ERROR",
             "filter and update are required",
           );
-        const result = await bulkUpdate(model, filter, writableData(update));
+        const input = await tenantData(req, writableData(update));
+        await runHook("beforeBulk", req, "bulk", { filter, update: input });
+        const result = await bulkUpdate(
+          model,
+          filter,
+          input,
+          await mutationScope(req, "update"),
+        );
+        await runHook(
+          "afterBulk",
+          req,
+          "bulk",
+          { filter, update: input },
+          result,
+        );
+        await emitChange("bulk", req, { filter, update: input }, result);
+        await invalidate(req);
         return res.status(200).json({
           success: true,
           statusCode: 200,
@@ -163,7 +254,15 @@ export const createController = (
             "VALIDATION_ERROR",
             "filter is required",
           );
-        const result = await bulkDelete(model, filter);
+        await runHook("beforeBulk", req, "bulk", { filter });
+        const result = await bulkDelete(
+          model,
+          filter,
+          await mutationScope(req, "delete"),
+        );
+        await runHook("afterBulk", req, "bulk", { filter }, result);
+        await emitChange("bulk", req, { filter }, result);
+        await invalidate(req);
         return res.status(200).json({
           success: true,
           statusCode: 200,
@@ -188,11 +287,17 @@ export const createController = (
             );
           return await update(req, res, String(_id), body);
         }
-        const input = lifecycleData(req, writableData(body), true);
+        const input = lifecycleData(
+          req,
+          await tenantData(req, writableData(body), true),
+          true,
+        );
         await runHook("beforeCreate", req, "create", input);
         if (await checkPrimaryKey(req, res, input)) return;
         const result = await createDoc(model, input);
         await runHook("afterCreate", req, "create", input, result);
+        await emitChange("create", req, input, result);
+        await invalidate(req);
         audit(req, "created");
         return res.status(201).json({
           success: true,
@@ -227,8 +332,13 @@ export const createController = (
               req.params.id,
               settings.softDelete,
               settings.softDelete.getDeletedBy?.(req),
+              await mutationScope(req, "delete"),
             )
-          : await deleteById(model, req.params.id);
+          : await deleteById(
+              model,
+              req.params.id,
+              await mutationScope(req, "delete"),
+            );
         if (!result)
           return sendError(
             req,
@@ -238,6 +348,8 @@ export const createController = (
             `${modelName} not found`,
           );
         await runHook("afterDelete", req, "delete", undefined, result);
+        await emitChange("delete", req, undefined, result);
+        await invalidate(req);
         audit(req, "deleted");
         if (settings.deleteStatus === 204) return res.status(204).send();
         return res.status(200).json({
@@ -252,7 +364,14 @@ export const createController = (
     },
     getAll: async (req: Request, res: Response) => {
       try {
-        const result = await getAll(model, settings, req);
+        const cache = settings.cache;
+        const key = cache?.key({ operation: "list", req, model });
+        const cached = key ? await cache?.get(key) : undefined;
+        const result =
+          cached === undefined
+            ? await getAll(model, settings, req, await tenantScope(req))
+            : cached;
+        if (key && cached === undefined) await cache?.set(key, result);
         return res.status(200).json({
           success: true,
           statusCode: 200,
@@ -265,7 +384,31 @@ export const createController = (
     },
     getById: async (req: Request, res: Response) => {
       try {
-        const result = await getById(model, req.params.id, settings, req);
+        const cache = settings.cache;
+        const key = cache?.key({
+          operation: "byId",
+          req,
+          model,
+          id: req.params.id,
+        });
+        const cached = key ? await cache?.get(key) : undefined;
+        const result =
+          cached === undefined
+            ? await getById(
+                model,
+                req.params.id,
+                {
+                  ...settings,
+                  queryScope: async (request) => ({
+                    ...(await settings.queryScope?.(request, "read")),
+                    ...(await tenantScope(request)),
+                  }),
+                },
+                req,
+              )
+            : cached;
+        if (key && cached === undefined && result)
+          await cache?.set(key, result);
         if (!result)
           return sendError(
             req,
@@ -327,7 +470,10 @@ export const createController = (
               { values: duplicates },
             );
           const existing = values.length
-            ? await model.find({ [key]: { $in: values } })
+            ? await model.find({
+                [key]: { $in: values },
+                ...(await tenantScope(req)),
+              })
             : [];
           if (existing.length)
             return sendError(
@@ -339,7 +485,14 @@ export const createController = (
               { values: existing.map((doc: any) => doc[key]) },
             );
         }
-        const result = await insertMany(model, docs, settings.bulk);
+        const input = await Promise.all(
+          docs.map((doc: any) => tenantData(req, writableData(doc), true)),
+        );
+        await runHook("beforeBulk", req, "bulk", input);
+        const result = await insertMany(model, input, settings.bulk);
+        await runHook("afterBulk", req, "bulk", input, result);
+        await emitChange("bulk", req, input, result);
+        await invalidate(req);
         return res.status(201).json({
           success: true,
           statusCode: 201,

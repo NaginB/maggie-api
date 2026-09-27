@@ -12,30 +12,55 @@ import {
 } from "../utils/interface";
 
 export const createDoc = (model: Model<any>, data: any) => model.create(data);
-export const updateDoc = (model: Model<any>, id: string, data: any) =>
-  model.findByIdAndUpdate(id, data, { new: true, runValidators: true });
-export const replaceDoc = (model: Model<any>, id: string, data: any) =>
-  model.findOneAndReplace({ _id: id }, data, {
+export const updateDoc = (
+  model: Model<any>,
+  id: string,
+  data: any,
+  scope: Record<string, unknown> = {},
+) =>
+  model.findOneAndUpdate({ _id: id, ...scope }, data, {
     new: true,
     runValidators: true,
   });
-export const deleteById = (model: Model<any>, id: string) =>
-  model.findByIdAndDelete(id);
-export const bulkUpdate = (model: Model<any>, filter: any, update: any) =>
-  model.updateMany(filter, update, { runValidators: true });
-export const bulkDelete = (model: Model<any>, filter: any) =>
-  model.deleteMany(filter);
+export const replaceDoc = (
+  model: Model<any>,
+  id: string,
+  data: any,
+  scope: Record<string, unknown> = {},
+) =>
+  model.findOneAndReplace({ _id: id, ...scope }, data, {
+    new: true,
+    runValidators: true,
+  });
+export const deleteById = (
+  model: Model<any>,
+  id: string,
+  scope: Record<string, unknown> = {},
+) => model.findOneAndDelete({ _id: id, ...scope });
+export const bulkUpdate = (
+  model: Model<any>,
+  filter: any,
+  update: any,
+  scope: Record<string, unknown> = {},
+) =>
+  model.updateMany({ $and: [scope, filter] }, update, { runValidators: true });
+export const bulkDelete = (
+  model: Model<any>,
+  filter: any,
+  scope: Record<string, unknown> = {},
+) => model.deleteMany({ $and: [scope, filter] });
 export const softDeleteById = (
   model: Model<any>,
   id: string,
   softDelete: SoftDeleteConfig,
   deletedBy: unknown,
+  scope: Record<string, unknown> = {},
 ) => {
   const deletedAt = softDelete.deletedAt || "deletedAt";
   const update: Record<string, unknown> = { [deletedAt]: new Date() };
   if (softDelete.deletedBy && deletedBy !== undefined)
     update[softDelete.deletedBy] = deletedBy;
-  return model.findByIdAndUpdate(id, update, {
+  return model.findOneAndUpdate({ _id: id, ...scope }, update, {
     new: true,
     runValidators: true,
   });
@@ -250,11 +275,15 @@ export const getAll = async (
   model: Model<any>,
   settings: ISetting,
   req: Request,
+  additionalScope: Record<string, unknown> = {},
 ) => {
   const scope = await settings.queryScope?.(req, "read");
   let query = model.find({
-    ...activeDocumentCondition(settings.softDelete),
-    ...(scope || {}),
+    $and: [
+      activeDocumentCondition(settings.softDelete),
+      scope || {},
+      additionalScope,
+    ],
   });
   const url = new URL(
     req.originalUrl,
@@ -602,9 +631,11 @@ export const getById = async (
 ) => {
   const scope = await settings.queryScope?.(req, "read");
   let query = model.findOne({
-    _id: id,
-    ...activeDocumentCondition(settings.softDelete),
-    ...(scope || {}),
+    $and: [
+      { _id: id },
+      activeDocumentCondition(settings.softDelete),
+      scope || {},
+    ],
   });
   const readable = settings.permissions?.readable || settings.getByIdKeys;
   if (readable.length) query = query.select(readable.join(" "));
