@@ -99,6 +99,21 @@ When pagination is active, the response data contains the configured `responseKe
 
 See [the configuration reference](docs/configuration.md) for the supported options and [the API behavior reference](docs/api-behavior.md) for response and edge-case details. Contributors should start with [the development guide](docs/development.md).
 
+## OpenAPI
+
+Generate an OpenAPI 3.1 document from the exact payload used to create the router:
+
+```ts
+import { createOpenApiDocument } from "maggie-api";
+
+const openapi = createOpenApiDocument(maggiePayload, {
+  title: "My API",
+  version: "3.0.0",
+});
+```
+
+The document includes generated CRUD routes, configured Joi request schemas, standard list-query parameters, and shared error responses.
+
 ## Notes
 
 - `getKeys` and `getByIdKeys` remain supported for compatibility, but prefer `settings.get.keys` and `settings.getById.keys`.

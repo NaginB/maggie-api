@@ -105,6 +105,23 @@ settings: {
 
 The cache integration is intentionally provider-neutral. Reads are cached only when `key` returns a key; successful mutations call `invalidate`.
 
+## Authorization, scopes, and bulk writes
+
+`authorize` runs before a generated operation and returns `false` for a `403 FORBIDDEN` response. `queryScope` is combined with list, by-id, update, replace, delete, and bulk mutation queries, so it is suitable for row-level ownership rules.
+
+```ts
+settings: {
+  authorize: {
+    read: (req) => req.user?.canRead === true,
+    bulk: (req) => req.user?.role === "admin",
+  },
+  queryScope: (req) => ({ ownerId: req.user.id }),
+  bulk: { allowUpdate: true, allowDelete: true, ordered: false, atomic: true },
+}
+```
+
+`POST /bulk` always creates documents. `PATCH /bulk` accepts `{ filter, update }` and `DELETE /bulk` accepts `{ filter }`; the latter two are generated only when their corresponding `bulk` flag is enabled. All bulk mutations are scoped and authorized before they reach MongoDB.
+
 ## Soft deletes
 
 Set `softDelete` to retain deleted documents while excluding them from generated list and by-id reads. `deletedAt` defaults to `"deletedAt"`; `deletedBy` and `getDeletedBy` are optional.

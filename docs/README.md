@@ -8,6 +8,7 @@ This directory is the maintainer reference for `maggie-api`.
 - [Development](development.md) describes local build and release checks.
 - [Version 3 roadmap](v3-roadmap.md) prioritizes future product and engineering work.
 - [Version 2 maintenance checklist](v2-maintenance-checklist.md) tracks completed defects and hardening work.
+- [V2 behavior matrix](v2-behavior-matrix.md) is the published compatibility contract retained in v3.
 - [V1-to-v2 migration guide](v2-migration.md) explains the compatible behavior changes and upgrade path.
 - [`CHANGELOG.md`](../CHANGELOG.md) records release-facing changes.
 

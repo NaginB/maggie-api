@@ -54,6 +54,10 @@ const TenantRecord = mongoose.model(
   "TenantRecordForV3",
   new Schema({ tenantId: { type: String, required: true }, title: String }),
 );
+const GovernedRecord = mongoose.model(
+  "GovernedRecordForV3",
+  new Schema({ ownerId: { type: String, required: true }, title: String }),
+);
 const changes: string[] = [];
 const cachedResponses = new Map<string, unknown>();
 let invalidations = 0;
@@ -192,6 +196,27 @@ tenantApp.use(
     ],
   }),
 );
+const governedApp = express();
+governedApp.use(express.json());
+governedApp.use(
+  createMaggie({
+    prefix: "/api",
+    models: [
+      {
+        model: GovernedRecord,
+        path: "governed-records",
+        settings: {
+          authorize: {
+            read: (req) => req.header("x-can-read") === "yes",
+            bulk: (req) => req.header("x-can-bulk") === "yes",
+          },
+          queryScope: (req) => ({ ownerId: req.header("x-owner") }),
+          bulk: { allowUpdate: true, allowDelete: true },
+        },
+      },
+    ],
+  }),
+);
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
@@ -268,6 +293,40 @@ describe("generated routes", () => {
     ).toBe(200);
     expect(changes).toEqual(expect.arrayContaining(["create", "update"]));
     expect(invalidations).toBeGreaterThanOrEqual(2);
+  });
+
+  it("applies authorization and query scopes to bulk mutations", async () => {
+    await GovernedRecord.create([
+      { ownerId: "one", title: "one" },
+      { ownerId: "two", title: "two" },
+    ]);
+    expect(
+      (await request(governedApp).get("/api/governed-records")).status,
+    ).toBe(403);
+    const ownerOne = await request(governedApp)
+      .get("/api/governed-records")
+      .set("x-can-read", "yes")
+      .set("x-owner", "one");
+    expect(ownerOne.body.data.governedrecordforv3s).toHaveLength(1);
+    expect(
+      (
+        await request(governedApp)
+          .patch("/api/governed-records/bulk")
+          .set("x-can-bulk", "yes")
+          .set("x-owner", "one")
+          .send({ filter: {}, update: { title: "changed" } })
+      ).body.data.modifiedCount,
+    ).toBe(1);
+    expect(
+      (
+        await request(governedApp)
+          .delete("/api/governed-records/bulk")
+          .set("x-can-bulk", "yes")
+          .set("x-owner", "one")
+          .send({ filter: {} })
+      ).body.data.deletedCount,
+    ).toBe(1);
+    expect(await GovernedRecord.countDocuments({ ownerId: "two" })).toBe(1);
   });
 
   it("creates, reads, patches and deletes with stable envelopes", async () => {

@@ -35,10 +35,10 @@ These features can make the library more compelling than a simple CRUD generator
 
 ## Recommended release sequence
 
-1. Stabilize the v2 contract with integration tests and a published behavior matrix.
-2. Build the V3 launch scope, retaining a documented v2 compatibility mode where practical.
-3. Launch **OpenAPI generation** as the headline feature, alongside secure query controls and standard CRUD verbs.
-4. Follow with authorization/scoping and bulk-operation improvements based on adopters’ needs.
+- [x] Stabilize the v2 contract with integration tests and a published [behavior matrix](v2-behavior-matrix.md).
+- [x] Build the V3 launch scope, retaining a documented [v2 compatibility mode](v2-migration.md#moving-from-v2-to-v3) where practical.
+- [x] Launch **OpenAPI generation** as the headline feature, alongside secure query controls and standard CRUD verbs.
+- [x] Follow with authorization/scoping and bulk-operation improvements based on adopters’ needs.
 
 ## Decisions to make before implementation
 
