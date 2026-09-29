@@ -40,7 +40,7 @@ Errors use the same shape with `success: false`, `data: null`, and a stable `cod
 
 | Operation     | Success    | Important behavior                                                                         |
 | ------------- | ---------- | ------------------------------------------------------------------------------------------ |
-| `POST /`      | 201        | Creates a document. With `_id`, performs legacy update unless `legacyPostUpdate: false`.   |
+| `POST /`      | 201        | Creates a document. With `_id`, updates only when `legacyPostUpdate: true` is configured.  |
 | `PATCH /:id`  | 200        | Partial update with Mongoose `runValidators: true`; missing document is 404.               |
 | `PUT /:id`    | 200        | Replaces a document with Mongoose validation; missing document is 404.                     |
 | `POST /bulk`  | 201        | Requires a non-empty array within `maxBulkSize`; rejects configured primary-key conflicts. |

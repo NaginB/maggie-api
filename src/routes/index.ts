@@ -1,16 +1,14 @@
 import { randomUUID } from "crypto";
 import { Request, RequestHandler, Router } from "express";
-import Joi from "joi";
 import { createController } from "../controllers";
 import { getAll } from "../services";
 import { ISetting, MaggieOperation, MaggiePayload } from "../utils/interface";
 import { sendError } from "../utils/errors";
-import { validateBody, validateBodyField } from "../utils/validateBody";
-
-const optionalSchema = (schema: Joi.ObjectSchema) =>
-  schema.fork(Object.keys(schema.describe().keys || {}), (field) =>
-    field.optional(),
-  );
+import {
+  optionalValidationSchema,
+  validateBody,
+  validateBodyField,
+} from "../utils/validateBody";
 
 const asHandler =
   (handler: (req: Request, res: any) => Promise<unknown>): RequestHandler =>
@@ -39,7 +37,10 @@ const createMaggie = ({
           return void sendError(req, res, 403, "FORBIDDEN", "Forbidden");
         const resources = models.map((entry) => {
           const settings = entry.settings || {};
-          const fields = entry.validationSchema?.describe().keys || {};
+          const fields =
+            typeof (entry.validationSchema as any)?.describe === "function"
+              ? (entry.validationSchema as any).describe().keys || {}
+              : {};
           return {
             name: entry.model.modelName,
             path: `${prefix}/${entry.path}`,
@@ -112,6 +113,8 @@ const createMaggie = ({
       };
       const controller = createController(model, settingsObj, logger);
       const subRouter = Router();
+      const operationMiddleware = (operation: MaggieOperation) =>
+        settingsObj.operationMiddleWares?.[operation] || [];
       const authorize =
         (operation: MaggieOperation): RequestHandler =>
         async (req, res, next) => {
@@ -130,7 +133,51 @@ const createMaggie = ({
       const bulkUpdateMiddleware: RequestHandler[] = [...middleWares];
       if (validationSchema) {
         createMiddleware.push(validateBody(validationSchema));
-        bulkMiddleware.push(validateBody(Joi.array().items(validationSchema)));
+        bulkMiddleware.push(
+          validateBody({
+            safeParse: (value: unknown) => {
+              if (!Array.isArray(value))
+                return {
+                  success: false as const,
+                  error: {
+                    issues: [
+                      {
+                        message: "must be an array",
+                        path: [],
+                        code: "array.base",
+                      },
+                    ],
+                  },
+                };
+              const values: unknown[] = [];
+              const issues: any[] = [];
+              value.forEach((item, index) => {
+                const schema = validationSchema as any;
+                const result =
+                  typeof schema.safeParse === "function"
+                    ? schema.safeParse(item)
+                    : schema.validate(item, {
+                        abortEarly: false,
+                        stripUnknown: true,
+                        convert: true,
+                      });
+                if (result.error) {
+                  const details = result.error.issues || result.error.details;
+                  issues.push(
+                    ...details.map((detail: any) => ({
+                      message: detail.message,
+                      path: [index, ...(detail.path || [])],
+                      code: detail.code || detail.type,
+                    })),
+                  );
+                } else values.push(result.data ?? result.value);
+              });
+              return issues.length
+                ? { success: false as const, error: { issues } }
+                : { success: true as const, data: values };
+            },
+          }),
+        );
       }
       if (replaceValidationSchema)
         replaceMiddleware.push(validateBody(replaceValidationSchema));
@@ -139,25 +186,32 @@ const createMaggie = ({
       if (updateValidationSchema)
         updateMiddleware.push(validateBody(updateValidationSchema));
       else if (validationSchema)
-        updateMiddleware.push(validateBody(optionalSchema(validationSchema)));
+        updateMiddleware.push(
+          validateBody(optionalValidationSchema(validationSchema)),
+        );
       if (updateValidationSchema)
         bulkUpdateMiddleware.push(
           validateBodyField("update", updateValidationSchema),
         );
       else if (validationSchema)
         bulkUpdateMiddleware.push(
-          validateBodyField("update", optionalSchema(validationSchema)),
+          validateBodyField(
+            "update",
+            optionalValidationSchema(validationSchema),
+          ),
         );
       subRouter.post(
         "/",
         authorize("create"),
         ...createMiddleware,
+        ...operationMiddleware("create"),
         asHandler(controller.addOrUpdate),
       );
       subRouter.post(
         "/bulk",
         authorize("bulk"),
         ...bulkMiddleware,
+        ...operationMiddleware("bulk"),
         asHandler(controller.insertMany),
       );
       if (settingsObj.bulk?.allowUpdate)
@@ -165,6 +219,7 @@ const createMaggie = ({
           "/bulk",
           authorize("bulk"),
           ...bulkUpdateMiddleware,
+          ...operationMiddleware("bulk"),
           asHandler(controller.bulkUpdate),
         );
       if (settingsObj.bulk?.allowDelete)
@@ -172,30 +227,53 @@ const createMaggie = ({
           "/bulk",
           authorize("bulk"),
           ...middleWares,
+          ...operationMiddleware("bulk"),
           asHandler(controller.bulkDelete),
         );
+      if (settingsObj.lookup) {
+        const lookupPath =
+          settingsObj.lookup.path || `by-${settingsObj.lookup.key}`;
+        subRouter.get(
+          `/${lookupPath}/:value`,
+          authorize("read"),
+          ...middleWares,
+          ...operationMiddleware("read"),
+          asHandler(controller.getByLookup),
+        );
+        subRouter.delete(
+          `/${lookupPath}/:value`,
+          authorize("delete"),
+          ...middleWares,
+          ...operationMiddleware("delete"),
+          asHandler(controller.removeByLookup),
+        );
+      }
       subRouter.patch(
         "/:id",
         authorize("update"),
         ...updateMiddleware,
+        ...operationMiddleware("update"),
         asHandler(controller.update),
       );
       subRouter.put(
         "/:id",
         authorize("replace"),
         ...replaceMiddleware,
+        ...operationMiddleware("replace"),
         asHandler(controller.replace),
       );
       subRouter.delete(
         "/:id",
         authorize("delete"),
         ...middleWares,
+        ...operationMiddleware("delete"),
         asHandler(controller.remove),
       );
       subRouter.get(
         "/",
         authorize("read"),
         ...middleWares,
+        ...operationMiddleware("read"),
         asHandler(controller.getAll),
       );
       for (const relation of settingsObj.relations || []) {
@@ -203,6 +281,7 @@ const createMaggie = ({
           `/:id/${relation.path}`,
           authorize("read"),
           ...middleWares,
+          ...operationMiddleware("read"),
           async (req, res, next) => {
             try {
               const relatedSettings: ISetting = {
@@ -240,6 +319,7 @@ const createMaggie = ({
         "/:id",
         authorize("read"),
         ...middleWares,
+        ...operationMiddleware("read"),
         asHandler(controller.getById),
       );
       router.use(`${prefix}/${path}`, subRouter);

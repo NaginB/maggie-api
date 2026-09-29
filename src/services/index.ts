@@ -477,6 +477,7 @@ export const getAll = async (
   const requestedLimit = parsePositiveInteger(queryParams.limit);
   const page = parsePositiveInteger(queryParams.page);
   const maxLimit = settings.get?.maxLimit ?? 100;
+  const defaultLimit = Math.min(settings.get?.defaultLimit ?? 20, maxLimit);
   if (requestedLimit && requestedLimit > maxLimit)
     throw new HttpError(
       400,
@@ -541,19 +542,21 @@ export const getAll = async (
           ? encodeCursor(last.get(cursorConfig.field), last._id)
           : null,
     };
-  } else if (requestedLimit && page) {
+  } else {
+    const limit = requestedLimit ?? defaultLimit;
+    const currentPage = page ?? 1;
     const total = await model.countDocuments(query.getQuery());
     results = await query
-      .skip((page - 1) * requestedLimit)
-      .limit(requestedLimit)
+      .skip((currentPage - 1) * limit)
+      .limit(limit)
       .exec();
     pagination = {
       total,
-      page,
-      limit: requestedLimit,
-      totalPages: Math.ceil(total / requestedLimit),
+      page: currentPage,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
-  } else results = await query.exec();
+  }
   const responseKey =
     settings.responseKey || singularToPlural(model.modelName.toLowerCase());
   return pagination

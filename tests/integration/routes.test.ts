@@ -85,6 +85,7 @@ app.use(
         }),
         settings: {
           responseKey: "members",
+          legacyPostUpdate: true,
           maxBulkSize: 2,
           get: {
             keys: ["name", "email", "age", "active"],

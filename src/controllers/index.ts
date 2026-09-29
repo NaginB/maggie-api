@@ -207,6 +207,91 @@ export const createController = (
     });
   };
   return {
+    getByLookup: async (req: Request, res: Response) => {
+      try {
+        const lookup = settings.lookup;
+        if (!lookup) return sendError(req, res, 404, "NOT_FOUND", "Not found");
+        const value = req.params.value;
+        const softField = settings.softDelete?.deletedAt || "deletedAt";
+        let query = model.findOne({
+          [lookup.key]: value,
+          ...(settings.softDelete
+            ? {
+                $or: [
+                  { [softField]: { $exists: false } },
+                  { [softField]: null },
+                ],
+              }
+            : {}),
+          ...(await settings.queryScope?.(req, "read")),
+          ...(await tenantScope(req)),
+        });
+        const readable = settings.permissions?.readable || settings.getByIdKeys;
+        if (readable.length) query = query.select(readable.join(" "));
+        const result = await query.exec();
+        if (!result)
+          return sendError(
+            req,
+            res,
+            404,
+            "NOT_FOUND",
+            `${modelName} not found`,
+          );
+        return res.status(200).json({
+          success: true,
+          statusCode: 200,
+          message: `${modelName} fetched successfully`,
+          data: result,
+        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
+      }
+    },
+    removeByLookup: async (req: Request, res: Response) => {
+      try {
+        const lookup = settings.lookup;
+        if (!lookup) return sendError(req, res, 404, "NOT_FOUND", "Not found");
+        const filter = {
+          [lookup.key]: req.params.value,
+          ...(await mutationScope(req, "delete")),
+        };
+        const result = settings.softDelete
+          ? await model.findOneAndUpdate(
+              filter,
+              {
+                [settings.softDelete.deletedAt || "deletedAt"]: new Date(),
+                ...(settings.softDelete.deletedBy &&
+                settings.softDelete.getDeletedBy?.(req) !== undefined
+                  ? {
+                      [settings.softDelete.deletedBy]:
+                        settings.softDelete.getDeletedBy?.(req),
+                    }
+                  : {}),
+              },
+              { new: true, runValidators: true },
+            )
+          : await model.findOneAndDelete(filter);
+        if (!result)
+          return sendError(
+            req,
+            res,
+            404,
+            "NOT_FOUND",
+            `${modelName} not found`,
+          );
+        await emitChange("delete", req, undefined, result);
+        await invalidate(req);
+        if (settings.deleteStatus === 204) return res.status(204).send();
+        return res.status(200).json({
+          success: true,
+          statusCode: 200,
+          message: `${modelName} deleted successfully`,
+          data: result,
+        });
+      } catch (error) {
+        return handleError(req, res, error, logger);
+      }
+    },
     bulkUpdate: async (req: Request, res: Response) => {
       try {
         const { filter, update } = req.body || {};
@@ -298,7 +383,7 @@ export const createController = (
       try {
         const { _id, ...body } = req.body;
         if (_id) {
-          if (settings.legacyPostUpdate === false)
+          if (settings.legacyPostUpdate !== true)
             return sendError(
               req,
               res,

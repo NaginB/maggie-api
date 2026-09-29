@@ -13,6 +13,17 @@ These items were identified during the v3 publish-readiness review and completed
 - [x] **Refresh vulnerable production dependencies.** Patched compatible Mongoose, Express, `path-to-regexp`, and Joi versions are pinned by supported ranges and lockfile overrides; CI requires a clean high-severity production audit.
 - [x] **Add regression coverage.** Tests cover MongoDB-operator rejection in bulk filters, bulk lifecycle and soft-delete behavior, projection permission boundaries, and generated OpenAPI extensions.
 
+## Adoption and API follow-ups — delivered
+
+These product gaps were identified during an external package-page review and are now implemented.
+
+- [x] **Use bounded list responses by default.** List routes now return a bounded first page by default (`20`, capped by `maxLimit`); applications can set `get.defaultLimit`.
+- [x] **Modernize the default update contract.** New documentation and starter configurations use `legacyPostUpdate: false`; compatibility remains explicitly available for existing clients.
+- [x] **Add per-operation middleware.** `operationMiddleWares` supports separate middleware arrays for generated operations alongside resource-wide `middleWares`.
+- [x] **Support safe alternate-key lookup routes.** `lookup: { key, path? }` adds opt-in read and delete routes such as `/users/by-email/:value`, with existing authorization, scopes, and tenant rules.
+- [x] **Offer a Zod integration path.** Validation accepts Joi schemas and Zod-compatible schemas exposing `safeParse`; Zod object schemas are made partial automatically for PATCH.
+- [x] **Improve package discoverability.** The package homepage now points to the GitHub repository and the published package includes TypeScript declarations.
+
 ## V3 launch scope — delivered
 
 - [x] **Add PUT replacement semantics.** Keep `POST` compatibility updates opt-in, retain PATCH for partial updates, and offer an explicit replacement route only with clear validation rules.
@@ -53,8 +64,8 @@ These capabilities differentiate the library from a simple CRUD generator.
 
 ## Implementation decisions — resolved
 
-- [x] **Compatibility:** v3 retains the v2 route and response contract. `legacyPostUpdate` defaults to enabled; applications can disable it per resource when clients have moved to PATCH. This makes v3 an additive major release rather than a forced route migration.
-- [x] **Validation:** Joi is the sole validation runtime in the core package. Manual Joi schemas remain the primary API, and `joiSchemaFromMongoose` supplies optional schema-derived Joi validation. Zod adapters are deferred until there is a separate package and a compatibility commitment.
+- [x] **Compatibility:** v3 uses PATCH for updates by default. Applications with older clients can explicitly enable `legacyPostUpdate` per resource during migration.
+- [x] **Validation:** Joi remains the primary API and `joiSchemaFromMongoose` supplies optional schema-derived Joi validation. Zod-compatible schemas are supported through the shared validation adapter.
 - [x] **Security posture:** all client-controlled fields are deny-by-default. Unknown filter operators/fields and requested search fields are rejected with `400 QUERY_ERROR` unless the relevant allow-list explicitly permits them. `strict: false` is the explicit compatibility escape hatch for filters.
 - [x] **OpenAPI packaging:** OpenAPI generation remains in the core package as `createOpenApiDocument`, keeping the API specification exactly aligned with router configuration without an additional versioned dependency.
 - [x] **Runtime support:** support Node.js `>=20 <25` and Mongoose `>=8.24.4 <9` (with Express `>=5.2.1 <6` and Joi `>=17.13.8 <18`). CI verifies Node 20, 22, and 24 against both the minimum supported and latest Mongoose 8 releases.

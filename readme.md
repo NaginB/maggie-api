@@ -2,6 +2,9 @@
 
 > A secure, configurable CRUD router for Express and Mongoose.
 
+[![CI](https://github.com/NaginB/maggie-api/actions/workflows/ci.yml/badge.svg)](https://github.com/NaginB/maggie-api/actions/workflows/ci.yml)
+![TypeScript declarations included](https://img.shields.io/badge/TypeScript-declarations%20included-3178C6?logo=typescript&logoColor=white)
+
 `maggie-api` turns a Mongoose model into a conventional REST resource without giving up control. Start with predictable CRUD routes, then explicitly opt into validation, field permissions, query controls, authorization, tenancy, soft deletes, bulk writes, relations, and OpenAPI.
 
 |         |                                                                   |

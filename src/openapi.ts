@@ -7,7 +7,10 @@ export interface OpenApiOptions {
 }
 
 const schemaFromModel = (model: MaggieModelPayload) => {
-  const description = model.validationSchema?.describe();
+  const description =
+    typeof (model.validationSchema as any)?.describe === "function"
+      ? (model.validationSchema as any).describe()
+      : undefined;
   if (!description?.keys) return { type: "object", additionalProperties: true };
   const properties: Record<string, unknown> = {};
   const required: string[] = [];

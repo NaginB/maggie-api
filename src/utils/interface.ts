@@ -2,6 +2,19 @@ import { Request, RequestHandler } from "express";
 import Joi from "joi";
 import { Model } from "mongoose";
 
+export interface ZodSchemaLike<T = unknown> {
+  safeParse(value: unknown):
+    | { success: true; data: T }
+    | {
+        success: false;
+        error: {
+          issues: Array<{ message: string; path: PropertyKey[]; code: string }>;
+        };
+      };
+  partial?: () => ZodSchemaLike<T>;
+}
+export type ValidationSchema = Joi.ObjectSchema | ZodSchemaLike;
+
 export type ErrorCode =
   | "VALIDATION_ERROR"
   | "INVALID_ID"
@@ -187,6 +200,8 @@ export interface ListSettings {
   search?: SearchConfig;
   sort?: SortConfig;
   maxLimit?: number;
+  /** Page size used when a list request omits limit. Defaults to 20. */
+  defaultLimit?: number;
   cursorPagination?: CursorPaginationConfig;
   clientProjection?: ClientProjectionConfig;
   clientPopulate?: ClientPopulateConfig;
@@ -212,13 +227,17 @@ export interface APISettings {
   events?: MaggieEvents;
   cache?: MaggieCache;
   relations?: RelationConfig[];
+  /** Middleware that runs only for the named generated operation. */
+  operationMiddleWares?: Partial<Record<MaggieOperation, RequestHandler[]>>;
+  /** Opt-in read and delete routes using a validated alternate document field. */
+  lookup?: { key: string; path?: string };
 }
 export interface MaggieModelPayload {
   model: Model<any>;
   path: string;
-  validationSchema?: Joi.ObjectSchema;
-  updateValidationSchema?: Joi.ObjectSchema;
-  replaceValidationSchema?: Joi.ObjectSchema;
+  validationSchema?: ValidationSchema;
+  updateValidationSchema?: ValidationSchema;
+  replaceValidationSchema?: ValidationSchema;
   primaryKey?: string;
   middleWares?: RequestHandler[];
   settings?: APISettings;

@@ -1,6 +1,6 @@
 {
   "name": "maggie-api",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "🧙‍♀️ A magical Express middleware to auto-generate CRUD APIs for Mongoose models with validation, unique keys, and middlewares.",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -102,7 +102,7 @@
   "bugs": {
     "url": "https://github.com/NaginB/maggie-api/issues"
   },
-  "homepage": "https://www.linkedin.com/in/nagin-banodha/",
+  "homepage": "https://github.com/NaginB/maggie-api",
   "dependencies": {
     "dotenv": "^16.5.0",
     "express": "^5.2.1",

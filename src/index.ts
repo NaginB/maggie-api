@@ -24,6 +24,8 @@ export type {
   MaggieChangeListener,
   MaggieEvents,
   TenantConfig,
+  ValidationSchema,
+  ZodSchemaLike,
   CacheContext,
   MaggieCache,
   RelationConfig,

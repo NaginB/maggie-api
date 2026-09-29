@@ -79,16 +79,16 @@ All public configuration and response interfaces are exported from the package r
 
 ## Write controls
 
-| Option                 | Description                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `legacyPostUpdate`     | Allows a `POST /resource` body containing `_id` to behave as an update. Defaults to enabled for compatibility. |
-| `deleteStatus`         | Uses `200` with an envelope by default; set `204` for no-content deletion.                                     |
-| `maxBulkSize`          | Maximum documents accepted by `POST /bulk`; defaults to `100`.                                                 |
-| `softDelete`           | Stores a deletion timestamp and optional actor instead of removing a document.                                 |
-| `permissions.writable` | Rejects incoming write fields outside this list.                                                               |
-| `lifecycle`            | Fills actor/timestamp fields and optionally writes lifecycle audit messages through `logger.info`.             |
-| `hooks`                | Runs asynchronous work before or after create, update, delete, and bulk operations.                            |
-| `events`               | Publishes completed mutation events to callbacks or an EventEmitter-style adapter.                             |
+| Option                 | Description                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `legacyPostUpdate`     | Allows a `POST /resource` body containing `_id` to behave as an update. Defaults to disabled; enable it only for older clients. |
+| `deleteStatus`         | Uses `200` with an envelope by default; set `204` for no-content deletion.                                                      |
+| `maxBulkSize`          | Maximum documents accepted by `POST /bulk`; defaults to `100`.                                                                  |
+| `softDelete`           | Stores a deletion timestamp and optional actor instead of removing a document.                                                  |
+| `permissions.writable` | Rejects incoming write fields outside this list.                                                                                |
+| `lifecycle`            | Fills actor/timestamp fields and optionally writes lifecycle audit messages through `logger.info`.                              |
+| `hooks`                | Runs asynchronous work before or after create, update, delete, and bulk operations.                                             |
+| `events`               | Publishes completed mutation events to callbacks or an EventEmitter-style adapter.                                              |
 
 Hooks receive `{ operation, req, model, input, document }`. `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `beforeBulk`, and `afterBulk` are supported. `after*` hooks and events receive the completed document or mutation result.
 
