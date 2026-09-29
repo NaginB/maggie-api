@@ -32,6 +32,10 @@ const SoftPerson = mongoose.model(
     name: { type: String, required: true },
     deletedAt: Date,
     deletedBy: String,
+    createdBy: String,
+    updatedBy: String,
+    createdAt: Date,
+    updatedAt: Date,
   }),
 );
 const Department = mongoose.model(
@@ -100,7 +104,12 @@ app.use(
             sort: { allowedFields: ["name", "age"] },
             maxLimit: 2,
             cursorPagination: { field: "age", type: "number", maxLimit: 2 },
+            clientProjection: {
+              allowedFields: ["name", "email"],
+              maxFields: 2,
+            },
           },
+          permissions: { readable: ["name", "age"] },
         },
       },
     ],
@@ -135,10 +144,22 @@ patchOnlyApp.use(
       {
         model: SoftPerson,
         path: "soft-people",
+        validationSchema: Joi.object({ name: Joi.string().required() }),
         settings: {
           softDelete: {
             deletedBy: "deletedBy",
             getDeletedBy: (req) => req.header("x-actor"),
+          },
+          lifecycle: {
+            createdBy: "createdBy",
+            updatedBy: "updatedBy",
+            createdAt: "createdAt",
+            updatedAt: "updatedAt",
+            getActor: (req) => req.header("x-actor"),
+          },
+          bulk: { allowUpdate: true, allowDelete: true },
+          get: {
+            filter: { fields: { name: { type: "string", operators: ["eq"] } } },
           },
         },
       },
@@ -235,6 +256,7 @@ describe("generated routes", () => {
       .get("/api/_meta")
       .set("x-admin", "yes");
     expect(metadata.status).toBe(200);
+    expect(metadata.body.message).toBe("API metadata fetched successfully");
     expect(metadata.body.data.resources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "DepartmentForV2" }),
@@ -416,6 +438,9 @@ describe("generated routes", () => {
     expect(secondCursorPage.body.data.members).toHaveLength(1);
     expect(secondCursorPage.body.data.members[0].name).toBe("Bee");
     expect((await request(app).get("/api/people?sort=email")).status).toBe(400);
+    expect((await request(app).get("/api/people?fields=email")).status).toBe(
+      400,
+    );
     expect(
       (await request(app).get("/api/people?search=Bee&searchFields=email"))
         .status,
@@ -508,6 +533,47 @@ describe("generated routes", () => {
         .softpeople,
     ).toHaveLength(0);
     expect((await SoftPerson.findById(created.id))?.deletedAt).toBeTruthy();
+  });
+  it("hardens bulk writes with validation, lifecycle data, and soft deletes", async () => {
+    const created = await request(patchOnlyApp)
+      .post("/api/soft-people/bulk")
+      .set("x-actor", "admin-42")
+      .send([{ name: "Bulk record" }]);
+    expect(created.status).toBe(201);
+    expect(created.body.data[0]).toMatchObject({
+      createdBy: "admin-42",
+      updatedBy: "admin-42",
+    });
+
+    expect(
+      (
+        await request(patchOnlyApp)
+          .patch("/api/soft-people/bulk")
+          .set("x-actor", "admin-43")
+          .send({ filter: { $where: "this.name" }, update: { name: "unsafe" } })
+      ).status,
+    ).toBe(400);
+
+    const updated = await request(patchOnlyApp)
+      .patch("/api/soft-people/bulk")
+      .set("x-actor", "admin-43")
+      .send({
+        filter: { name: "Bulk record" },
+        update: { name: "Updated bulk" },
+      });
+    expect(updated.status).toBe(200);
+    expect(
+      (await SoftPerson.findOne({ name: "Updated bulk" }))?.updatedBy,
+    ).toBe("admin-43");
+
+    const removed = await request(patchOnlyApp)
+      .delete("/api/soft-people/bulk")
+      .set("x-actor", "admin-44")
+      .send({ filter: { name: "Updated bulk" } });
+    expect(removed.status).toBe(200);
+    const stored = await SoftPerson.findOne({ name: "Updated bulk" });
+    expect(stored?.deletedAt).toBeTruthy();
+    expect(stored?.deletedBy).toBe("admin-44");
   });
   it("populates configured relations and preserves middleware and request-ID behavior", async () => {
     const department = await Department.create({ name: "Engineering" });

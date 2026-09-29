@@ -5,7 +5,12 @@ import { createController } from "../controllers";
 import { getAll } from "../services";
 import { ISetting, MaggieOperation, MaggiePayload } from "../utils/interface";
 import { sendError } from "../utils/errors";
-import { validateBody } from "../utils/validateBody";
+import { validateBody, validateBodyField } from "../utils/validateBody";
+
+const optionalSchema = (schema: Joi.ObjectSchema) =>
+  schema.fork(Object.keys(schema.describe().keys || {}), (field) =>
+    field.optional(),
+  );
 
 const asHandler =
   (handler: (req: Request, res: any) => Promise<unknown>): RequestHandler =>
@@ -74,7 +79,12 @@ const createMaggie = ({
             })),
           };
         });
-        res.json({ success: true, statusCode: 200, data: { resources } });
+        res.json({
+          success: true,
+          statusCode: 200,
+          message: "API metadata fetched successfully",
+          data: { resources },
+        });
         return;
       } catch (error) {
         next(error);
@@ -117,6 +127,7 @@ const createMaggie = ({
       const updateMiddleware: RequestHandler[] = [...middleWares];
       const replaceMiddleware: RequestHandler[] = [...middleWares];
       const bulkMiddleware: RequestHandler[] = [...middleWares];
+      const bulkUpdateMiddleware: RequestHandler[] = [...middleWares];
       if (validationSchema) {
         createMiddleware.push(validateBody(validationSchema));
         bulkMiddleware.push(validateBody(Joi.array().items(validationSchema)));
@@ -128,13 +139,14 @@ const createMaggie = ({
       if (updateValidationSchema)
         updateMiddleware.push(validateBody(updateValidationSchema));
       else if (validationSchema)
-        updateMiddleware.push(
-          validateBody(
-            validationSchema.fork(
-              Object.keys(validationSchema.describe().keys || {}),
-              (field) => field.optional(),
-            ),
-          ),
+        updateMiddleware.push(validateBody(optionalSchema(validationSchema)));
+      if (updateValidationSchema)
+        bulkUpdateMiddleware.push(
+          validateBodyField("update", updateValidationSchema),
+        );
+      else if (validationSchema)
+        bulkUpdateMiddleware.push(
+          validateBodyField("update", optionalSchema(validationSchema)),
         );
       subRouter.post(
         "/",
@@ -152,7 +164,7 @@ const createMaggie = ({
         subRouter.patch(
           "/bulk",
           authorize("bulk"),
-          ...middleWares,
+          ...bulkUpdateMiddleware,
           asHandler(controller.bulkUpdate),
         );
       if (settingsObj.bulk?.allowDelete)

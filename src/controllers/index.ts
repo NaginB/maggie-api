@@ -4,12 +4,14 @@ import {
   createDoc,
   bulkDelete,
   bulkUpdate,
+  buildConfiguredFilter,
   deleteById,
   getAll,
   getById,
   insertMany,
   replaceDoc,
   softDeleteById,
+  softDeleteMany,
   updateDoc,
 } from "../services";
 import { handleError, HttpError, sendError } from "../utils/errors";
@@ -216,22 +218,35 @@ export const createController = (
             "VALIDATION_ERROR",
             "filter and update are required",
           );
-        const input = await tenantData(req, writableData(update));
-        await runHook("beforeBulk", req, "bulk", { filter, update: input });
+        const safeFilter = buildConfiguredFilter(filter, settings);
+        const input = lifecycleData(
+          req,
+          await tenantData(req, writableData(update)),
+        );
+        await runHook("beforeBulk", req, "bulk", {
+          filter: safeFilter,
+          update: input,
+        });
         const result = await bulkUpdate(
           model,
-          filter,
+          safeFilter,
           input,
           await mutationScope(req, "update"),
+          settings.softDelete,
         );
         await runHook(
           "afterBulk",
           req,
           "bulk",
-          { filter, update: input },
+          { filter: safeFilter, update: input },
           result,
         );
-        await emitChange("bulk", req, { filter, update: input }, result);
+        await emitChange(
+          "bulk",
+          req,
+          { filter: safeFilter, update: input },
+          result,
+        );
         await invalidate(req);
         return res.status(200).json({
           success: true,
@@ -254,14 +269,20 @@ export const createController = (
             "VALIDATION_ERROR",
             "filter is required",
           );
-        await runHook("beforeBulk", req, "bulk", { filter });
-        const result = await bulkDelete(
-          model,
-          filter,
-          await mutationScope(req, "delete"),
-        );
-        await runHook("afterBulk", req, "bulk", { filter }, result);
-        await emitChange("bulk", req, { filter }, result);
+        const safeFilter = buildConfiguredFilter(filter, settings);
+        await runHook("beforeBulk", req, "bulk", { filter: safeFilter });
+        const scope = await mutationScope(req, "delete");
+        const result = settings.softDelete
+          ? await softDeleteMany(
+              model,
+              safeFilter,
+              settings.softDelete,
+              settings.softDelete.getDeletedBy?.(req),
+              scope,
+            )
+          : await bulkDelete(model, safeFilter, scope);
+        await runHook("afterBulk", req, "bulk", { filter: safeFilter }, result);
+        await emitChange("bulk", req, { filter: safeFilter }, result);
         await invalidate(req);
         return res.status(200).json({
           success: true,
@@ -486,7 +507,13 @@ export const createController = (
             );
         }
         const input = await Promise.all(
-          docs.map((doc: any) => tenantData(req, writableData(doc), true)),
+          docs.map(async (doc: any) =>
+            lifecycleData(
+              req,
+              await tenantData(req, writableData(doc), true),
+              true,
+            ),
+          ),
         );
         await runHook("beforeBulk", req, "bulk", input);
         const result = await insertMany(model, input, settings.bulk);

@@ -1,15 +1,30 @@
-# Project documentation
+# Maggie documentation
 
-This directory is the maintainer reference for `maggie-api`.
+Welcome to the `maggie-api` documentation. Maggie turns Mongoose models into Express resources while keeping authorization, query capabilities, and response fields under application control.
 
-- [Architecture](architecture.md) explains the request flow and source layout.
-- [Configuration](configuration.md) documents the public `createMaggie` payload.
-- [API behavior](api-behavior.md) records routes, response shapes, and current edge cases.
-- [Development](development.md) describes local build and release checks.
-- [Version 3 roadmap](v3-roadmap.md) prioritizes future product and engineering work.
-- [Version 2 maintenance checklist](v2-maintenance-checklist.md) tracks completed defects and hardening work.
-- [V2 behavior matrix](v2-behavior-matrix.md) is the published compatibility contract retained in v3.
-- [V1-to-v2 migration guide](v2-migration.md) explains the compatible behavior changes and upgrade path.
-- [`CHANGELOG.md`](../CHANGELOG.md) records release-facing changes.
+## Guides
 
-Keep these documents aligned with source changes. The package README is the consumer-facing entry point; this directory carries the implementation detail that would otherwise be easy to lose.
+| Guide                                    | Use it when you want to…                              |
+| ---------------------------------------- | ----------------------------------------------------- |
+| [Getting started](getting-started.md)    | Mount your first model and make a request.            |
+| [Features explained simply](features.md) | Understand every Maggie capability in plain language. |
+| [Security](security.md)                  | Configure resource boundaries for a production API.   |
+| [Migration](v2-migration.md)             | Move existing clients to the current contract.        |
+| [Development](development.md)            | Contribute, test, or prepare a release.               |
+
+## Reference
+
+| Reference                                   | Covers                                                |
+| ------------------------------------------- | ----------------------------------------------------- |
+| [Configuration](configuration.md)           | Every payload, model, settings, and extension option. |
+| [API behavior](api-behavior.md)             | Routes, response envelopes, errors, and query syntax. |
+| [Architecture](architecture.md)             | Request flow and maintainers’ source map.             |
+| [V2 behavior matrix](v2-behavior-matrix.md) | Compatibility commitments retained in v3.             |
+
+## Project history
+
+- [Version 3 delivery record](v3-roadmap.md)
+- [Version 2 maintenance checklist](v2-maintenance-checklist.md)
+- [Changelog](../CHANGELOG.md)
+
+The [package README](../README.md) is the shortest path to install and run Maggie. Keep this reference aligned with public behavior whenever source changes.

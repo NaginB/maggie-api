@@ -1,6 +1,6 @@
-# V2 behavior matrix
+# V2 compatibility matrix
 
-This is the published compatibility contract retained by v3. The integration suite exercises the cases named in the final column.
+This is the published compatibility contract retained by v3. The integration suite exercises the cases named in the final column. For current route details, see [routes and response behavior](api-behavior.md).
 
 | Area                     | Contract                                                                                                              | Integration coverage                                               |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |

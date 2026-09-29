@@ -1,6 +1,24 @@
 # Configuration reference
 
-`createMaggie({ prefix, models, requestId?, logger? })` creates one router. `requestId` can return an application request id; otherwise Maggie uses the incoming `x-request-id` or generates a UUID. `logger` receives structured unexpected-error events and replaces direct console logging.
+`createMaggie(payload)` creates an Express router. The router owns only the generated resource routes: mount JSON parsing, authentication, and any application middleware in Express as usual.
+
+```ts
+const api = createMaggie({
+  prefix: "/api/v3",
+  models: [/* model configurations */],
+  requestId: (req) => req.header("x-correlation-id") || undefined,
+  logger: { error: (entry) => logger.error(entry) },
+  metadata: { authorize: (req) => req.user?.role === "admin" },
+});
+```
+
+| Payload option | Required | Description                                                                       |
+| -------------- | -------- | --------------------------------------------------------------------------------- |
+| `prefix`       | Yes      | Prefix added before every configured resource path.                               |
+| `models`       | Yes      | One or more `MaggieModelPayload` resource configurations.                         |
+| `requestId`    | No       | Returns a request identifier. Falls back to incoming `x-request-id`, then a UUID. |
+| `logger`       | No       | Receives structured unexpected-error events and lifecycle audit messages.         |
+| `metadata`     | No       | Enables a protected resource-description endpoint.                                |
 
 ## Model configuration
 
@@ -40,6 +58,56 @@ settings: {
 `filter.allowedFields` remains supported for simple string filters. Prefer `filter.fields` for explicit value types and operator restrictions. Supported types are `string`, `number`, `boolean`, `date`, and `objectId`; supported operators are `eq`, `in`, `gte`, `lte`, `gt`, and `lt`. Filters reject unknown fields and operators by default; set `strict: false` only for a deliberate compatibility policy.
 
 All public configuration and response interfaces are exported from the package root.
+
+## Read controls
+
+`settings.get` configures list routes and `settings.getById` configures by-id reads.
+
+| Option             | Applies to  | Description                                                           |
+| ------------------ | ----------- | --------------------------------------------------------------------- |
+| `keys`             | List, by-id | Mongoose selection fields returned to the client.                     |
+| `populate`         | List, by-id | Server-controlled population paths.                                   |
+| `maxLimit`         | List        | Maximum offset or cursor page size; defaults to `100`.                |
+| `search`           | List        | Allowed fields, maximum term length, and optional regex behavior.     |
+| `filter`           | List        | Typed field/operator allow-list and logical group policy.             |
+| `sort`             | List        | Allowed sort fields and strictness policy.                            |
+| `cursorPagination` | List        | Stable cursor field, type, direction, and maximum page size.          |
+| `clientProjection` | List        | Client-selectable field allow-list and field-count limit.             |
+| `clientPopulate`   | List        | Client-selectable population allow-list, path limit, and depth limit. |
+
+`keys` controls the selected data. `permissions.readable` is an additional resource-wide boundary; when configured, it takes precedence over the read-specific selection. See the [security guide](security.md) before enabling client projection or population.
+
+## Write controls
+
+| Option                 | Description                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `legacyPostUpdate`     | Allows a `POST /resource` body containing `_id` to behave as an update. Defaults to enabled for compatibility. |
+| `deleteStatus`         | Uses `200` with an envelope by default; set `204` for no-content deletion.                                     |
+| `maxBulkSize`          | Maximum documents accepted by `POST /bulk`; defaults to `100`.                                                 |
+| `softDelete`           | Stores a deletion timestamp and optional actor instead of removing a document.                                 |
+| `permissions.writable` | Rejects incoming write fields outside this list.                                                               |
+| `lifecycle`            | Fills actor/timestamp fields and optionally writes lifecycle audit messages through `logger.info`.             |
+| `hooks`                | Runs asynchronous work before or after create, update, delete, and bulk operations.                            |
+| `events`               | Publishes completed mutation events to callbacks or an EventEmitter-style adapter.                             |
+
+Hooks receive `{ operation, req, model, input, document }`. `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `beforeBulk`, and `afterBulk` are supported. `after*` hooks and events receive the completed document or mutation result.
+
+```ts
+settings: {
+  permissions: { writable: ["name", "role"] },
+  lifecycle: {
+    createdBy: "createdBy",
+    updatedBy: "updatedBy",
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
+    getActor: (req) => req.user?.id,
+    audit: true,
+  },
+  hooks: {
+    afterCreate: async ({ document }) => indexDocument(document),
+  },
+}
+```
 
 ## OpenAPI
 
@@ -120,7 +188,7 @@ settings: {
 }
 ```
 
-`POST /bulk` always creates documents. `PATCH /bulk` accepts `{ filter, update }` and `DELETE /bulk` accepts `{ filter }`; the latter two are generated only when their corresponding `bulk` flag is enabled. All bulk mutations are scoped and authorized before they reach MongoDB.
+`POST /bulk` always creates documents. `PATCH /bulk` accepts `{ filter, update }` and validates `update` with `updateValidationSchema` or the optionalized create schema. `DELETE /bulk` accepts `{ filter }`; the latter two are generated only when their corresponding `bulk` flag is enabled. Their filters use the same typed field/operator allow-list as list routes, and all bulk mutations are scoped and authorized before they reach MongoDB. With `softDelete`, bulk delete marks matching active documents as deleted rather than removing them.
 
 ## Soft deletes
 
@@ -149,3 +217,18 @@ get: {
   cursorPagination: { field: "createdAt", type: "date", direction: "desc", maxLimit: 50 },
 }
 ```
+
+## Client projection and population
+
+Server-defined `keys` and `populate` are always safe defaults. To let a client select a limited subset, configure it explicitly:
+
+```ts
+settings: {
+  get: {
+    clientProjection: { allowedFields: ["name", "email", "avatar"], maxFields: 3 },
+    clientPopulate: { allowedPaths: ["team", "manager"], maxPaths: 1, maxDepth: 1 },
+  },
+}
+```
+
+Clients may then use `?fields=name,email` and `?populate=team`. Requests that exceed the configured path, field, or nesting limits fail with `400 QUERY_ERROR`.

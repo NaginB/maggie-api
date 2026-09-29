@@ -2,6 +2,8 @@
 
 `createMaggie` is a router factory. It receives model definitions, creates an Express sub-router for each model, and mounts it at `${prefix}/${path}`.
 
+The library intentionally separates HTTP policy from database access: routes assemble middleware and authorization, controllers apply resource policy and envelopes, and services build Mongoose queries.
+
 ```text
 consumer application
   -> createMaggie(payload)
@@ -26,9 +28,10 @@ consumer application
 ## Request flow
 
 1. Express matches the configured model sub-route.
-2. `middleWares` runs for every generated route. On `POST`, Joi validation follows it when `validationSchema` is supplied.
-3. A controller chooses the service call and builds the JSON response.
-4. The service executes the Mongoose query. List queries apply selection, filtering, search, population, sorting, and optionally pagination.
+2. The router assigns an `x-request-id`, then `middleWares`, authorization, and validation run for the matched operation.
+3. A controller applies field permissions, tenant data, query scopes, lifecycle metadata, hooks, events, caching, and the response envelope.
+4. The service executes the Mongoose query. List queries apply selection, filtering, search, population, sorting, and pagination.
+5. Successful mutations emit events, invalidate configured caches, and may write audit entries through the injected logger.
 
 ## Change boundaries
 
