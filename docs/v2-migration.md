@@ -1,10 +1,12 @@
-# Migrating from v1 to v2
+# Migration guide
 
-Version 2 establishes the predictable CRUD and response contract that v3 builds on. It retains the legacy POST-update path by default, so existing consumers can upgrade incrementally rather than changing every client at once.
+Version 2 established the predictable CRUD and response contract that v3 builds on. Version 3 retains that contract and adds opt-in controls, so most applications can upgrade without changing every client at once.
+
+> **Already on v3?** Use this page as a compatibility reference. For a new integration, begin with [Getting started](getting-started.md) and [Security](security.md).
 
 ## Upgrade checklist
 
-1. Update the package reference to the v2-compatible release, run your integration suite, and confirm your Node runtime is 20 or newer.
+1. Update to the current v3 release, run your integration suite, and confirm your Node runtime is 20 or newer.
 2. Keep existing `POST /resource` updates working during the transition. When clients are ready, set `settings.legacyPostUpdate: false` and move partial updates to `PATCH /resource/:id`.
 3. If an update replaces an entire document, use `PUT /resource/:id`. Supply `replaceValidationSchema` when the replacement contract differs from the create schema.
 4. Replace client handling of ad-hoc error shapes with the stable envelope: `success`, `statusCode`, `message`, `data: null`, and `code`. Joi failures include `details` entries with a path and message.

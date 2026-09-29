@@ -11,34 +11,87 @@ import {
   SoftDeleteConfig,
 } from "../utils/interface";
 
+const activeDocumentCondition = (softDelete?: SoftDeleteConfig) => {
+  if (!softDelete) return {};
+  const field = softDelete.deletedAt || "deletedAt";
+  return { $or: [{ [field]: { $exists: false } }, { [field]: null }] };
+};
+
 export const createDoc = (model: Model<any>, data: any) => model.create(data);
-export const updateDoc = (model: Model<any>, id: string, data: any) =>
-  model.findByIdAndUpdate(id, data, { new: true, runValidators: true });
-export const replaceDoc = (model: Model<any>, id: string, data: any) =>
-  model.findOneAndReplace({ _id: id }, data, {
+export const updateDoc = (
+  model: Model<any>,
+  id: string,
+  data: any,
+  scope: Record<string, unknown> = {},
+) =>
+  model.findOneAndUpdate({ _id: id, ...scope }, data, {
     new: true,
     runValidators: true,
   });
-export const deleteById = (model: Model<any>, id: string) =>
-  model.findByIdAndDelete(id);
-export const bulkUpdate = (model: Model<any>, filter: any, update: any) =>
-  model.updateMany(filter, update, { runValidators: true });
-export const bulkDelete = (model: Model<any>, filter: any) =>
-  model.deleteMany(filter);
+export const replaceDoc = (
+  model: Model<any>,
+  id: string,
+  data: any,
+  scope: Record<string, unknown> = {},
+) =>
+  model.findOneAndReplace({ _id: id, ...scope }, data, {
+    new: true,
+    runValidators: true,
+  });
+export const deleteById = (
+  model: Model<any>,
+  id: string,
+  scope: Record<string, unknown> = {},
+) => model.findOneAndDelete({ _id: id, ...scope });
+export const bulkUpdate = (
+  model: Model<any>,
+  filter: any,
+  update: any,
+  scope: Record<string, unknown> = {},
+  softDelete?: SoftDeleteConfig,
+) =>
+  model.updateMany(
+    { $and: [activeDocumentCondition(softDelete), scope, filter] },
+    update,
+    { runValidators: true },
+  );
+export const bulkDelete = (
+  model: Model<any>,
+  filter: any,
+  scope: Record<string, unknown> = {},
+) => model.deleteMany({ $and: [scope, filter] });
 export const softDeleteById = (
   model: Model<any>,
   id: string,
   softDelete: SoftDeleteConfig,
   deletedBy: unknown,
+  scope: Record<string, unknown> = {},
 ) => {
   const deletedAt = softDelete.deletedAt || "deletedAt";
   const update: Record<string, unknown> = { [deletedAt]: new Date() };
   if (softDelete.deletedBy && deletedBy !== undefined)
     update[softDelete.deletedBy] = deletedBy;
-  return model.findByIdAndUpdate(id, update, {
+  return model.findOneAndUpdate({ _id: id, ...scope }, update, {
     new: true,
     runValidators: true,
   });
+};
+export const softDeleteMany = (
+  model: Model<any>,
+  filter: Record<string, unknown>,
+  softDelete: SoftDeleteConfig,
+  deletedBy: unknown,
+  scope: Record<string, unknown> = {},
+) => {
+  const deletedAt = softDelete.deletedAt || "deletedAt";
+  const update: Record<string, unknown> = { [deletedAt]: new Date() };
+  if (softDelete.deletedBy && deletedBy !== undefined)
+    update[softDelete.deletedBy] = deletedBy;
+  return model.updateMany(
+    { $and: [activeDocumentCondition(softDelete), scope, filter] },
+    update,
+    { runValidators: true },
+  );
 };
 export const insertMany = async (
   model: Model<any>,
@@ -111,12 +164,6 @@ export const parsePositiveInteger = (value: unknown): number | undefined => {
   return Number.isSafeInteger(number) ? number : undefined;
 };
 
-const activeDocumentCondition = (softDelete?: SoftDeleteConfig) => {
-  if (!softDelete) return {};
-  const field = softDelete.deletedAt || "deletedAt";
-  return { $or: [{ [field]: { $exists: false } }, { [field]: null }] };
-};
-
 const encodeCursor = (value: unknown, id: unknown) =>
   Buffer.from(JSON.stringify({ value, id: String(id) })).toString("base64url");
 const decodeCursor = (token: string): { value: unknown; id: string } => {
@@ -164,7 +211,7 @@ const buildFilterConditions = (
       continue;
     }
     if (!allowedFields.has(field)) {
-      if (filterConfig?.strict)
+      if (filterConfig?.strict !== false)
         throw new HttpError(
           400,
           "QUERY_ERROR",
@@ -192,7 +239,7 @@ const buildFilterConditions = (
       const range: Record<string, unknown> = {};
       for (const [op, value] of Object.entries(raw)) {
         if (!operators.has(op as any)) {
-          if (filterConfig?.strict)
+          if (filterConfig?.strict !== false)
             throw new HttpError(
               400,
               "QUERY_ERROR",
@@ -246,15 +293,32 @@ const buildFilterConditions = (
   return conditions;
 };
 
+export const buildConfiguredFilter = (
+  rawFilter: unknown,
+  settings: Pick<ISetting, "get" | "permissions">,
+) => {
+  const filterConfig = settings.permissions?.filterable
+    ? {
+        ...settings.get?.filter,
+        allowedFields: settings.permissions.filterable,
+      }
+    : settings.get?.filter;
+  return buildFilterConditions(rawFilter, filterConfig);
+};
+
 export const getAll = async (
   model: Model<any>,
   settings: ISetting,
   req: Request,
+  additionalScope: Record<string, unknown> = {},
 ) => {
   const scope = await settings.queryScope?.(req, "read");
   let query = model.find({
-    ...activeDocumentCondition(settings.softDelete),
-    ...(scope || {}),
+    $and: [
+      activeDocumentCondition(settings.softDelete),
+      scope || {},
+      additionalScope,
+    ],
   });
   const url = new URL(
     req.originalUrl,
@@ -272,9 +336,13 @@ export const getAll = async (
           .filter(Boolean)
       : [];
   if (requestedFields.length) {
+    const allowedProjection = projection?.allowedFields.filter(
+      (field) =>
+        !settings.permissions?.readable?.length || readable.includes(field),
+    );
     if (
       !projection ||
-      requestedFields.some((field) => !projection.allowedFields.includes(field))
+      requestedFields.some((field) => !allowedProjection?.includes(field))
     )
       throw new HttpError(
         400,
@@ -292,113 +360,7 @@ export const getAll = async (
       );
     query = query.select(requestedFields.join(" "));
   }
-  const rawFilter = queryParams.filter;
-  const filterConfig = settings.permissions?.filterable
-    ? {
-        ...settings.get?.filter,
-        allowedFields: settings.permissions.filterable,
-      }
-    : settings.get?.filter;
-  const configuredFields = filterConfig?.fields || {};
-  const allowedFields = new Set(
-    settings.permissions?.filterable ||
-      filterConfig?.allowedFields ||
-      Object.keys(configuredFields),
-  );
-  const conditions: Record<string, any> = {};
-  const groupedConditions = buildFilterConditions(rawFilter, filterConfig);
-  if (rawFilter && typeof rawFilter === "object" && !Array.isArray(rawFilter)) {
-    for (const [field, raw] of Object.entries(rawFilter)) {
-      if (field === "$and" || field === "$or") {
-        conditions[field] = groupedConditions[field];
-        continue;
-      }
-      if (!allowedFields.has(field)) {
-        if (filterConfig?.strict)
-          throw new HttpError(
-            400,
-            "QUERY_ERROR",
-            `Filter field ${field} is not allowed`,
-          );
-        continue;
-      }
-      const config = configuredFields[field];
-      const operators = new Set(
-        config?.operators || ["eq", "in", "gte", "lte", "gt", "lt"],
-      );
-      if (Array.isArray(raw)) {
-        if (!operators.has("in"))
-          throw new HttpError(
-            400,
-            "QUERY_ERROR",
-            `Operator in is not allowed for ${field}`,
-          );
-        conditions[field] = {
-          $in: raw.map((value) => castValue(value, config?.type, field)),
-        };
-      } else if (raw && typeof raw === "object") {
-        const range: Record<string, unknown> = {};
-        for (const [op, value] of Object.entries(raw)) {
-          if (!operators.has(op as any)) {
-            if (filterConfig?.strict)
-              throw new HttpError(
-                400,
-                "QUERY_ERROR",
-                `Operator ${op} is not allowed for ${field}`,
-              );
-            continue;
-          }
-          if (["gte", "lte", "gt", "lt", "ne"].includes(op))
-            range[`$${op}`] = castValue(value, config?.type, field);
-          else if (op === "nin")
-            range.$nin = (Array.isArray(value) ? value : [value]).map((item) =>
-              castValue(item, config?.type, field),
-            );
-          else if (op === "exists") {
-            if (value !== "true" && value !== "false")
-              throw new HttpError(
-                400,
-                "QUERY_ERROR",
-                `Invalid exists value for ${field}`,
-              );
-            range.$exists = value === "true";
-          } else if (op === "regex") {
-            if (!config?.allowRegex)
-              throw new HttpError(
-                400,
-                "QUERY_ERROR",
-                `Regex filters are not enabled for ${field}`,
-              );
-            try {
-              range.$regex = new RegExp(String(value));
-            } catch {
-              throw new HttpError(
-                400,
-                "QUERY_ERROR",
-                `Invalid regular expression for ${field}`,
-              );
-            }
-          } else {
-            if (filterConfig?.strict)
-              throw new HttpError(
-                400,
-                "QUERY_ERROR",
-                `Operator ${op} is not allowed for ${field}`,
-              );
-          }
-        }
-        if (Object.keys(range).length) conditions[field] = range;
-      } else {
-        if (!operators.has("eq"))
-          throw new HttpError(
-            400,
-            "QUERY_ERROR",
-            `Operator eq is not allowed for ${field}`,
-          );
-        conditions[field] = castValue(raw, config?.type, field);
-      }
-    }
-  }
+  const conditions = buildConfiguredFilter(queryParams.filter, settings);
   if (Object.keys(conditions).length) query = query.find(conditions);
   const keyword = queryParams.search;
   const searchConfig = settings.get?.search;
@@ -423,6 +385,12 @@ export const getAll = async (
         : [];
     const allowed =
       settings.permissions?.searchable || searchConfig?.allowedFields || [];
+    if (requested.some((field) => !allowed.includes(field)))
+      throw new HttpError(
+        400,
+        "QUERY_ERROR",
+        "A requested search field is not allowed",
+      );
     const fields = requested.length
       ? requested.filter((field) => allowed.includes(field))
       : allowed;
@@ -602,9 +570,11 @@ export const getById = async (
 ) => {
   const scope = await settings.queryScope?.(req, "read");
   let query = model.findOne({
-    _id: id,
-    ...activeDocumentCondition(settings.softDelete),
-    ...(scope || {}),
+    $and: [
+      { _id: id },
+      activeDocumentCondition(settings.softDelete),
+      scope || {},
+    ],
   });
   const readable = settings.permissions?.readable || settings.getByIdKeys;
   if (readable.length) query = query.select(readable.join(" "));

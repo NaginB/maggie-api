@@ -32,6 +32,10 @@ const SoftPerson = mongoose.model(
     name: { type: String, required: true },
     deletedAt: Date,
     deletedBy: String,
+    createdBy: String,
+    updatedBy: String,
+    createdAt: Date,
+    updatedAt: Date,
   }),
 );
 const Department = mongoose.model(
@@ -50,6 +54,17 @@ const MiddlewarePerson = mongoose.model(
   new Schema({ name: { type: String, required: true } }),
 );
 const middlewareOrder: string[] = [];
+const TenantRecord = mongoose.model(
+  "TenantRecordForV3",
+  new Schema({ tenantId: { type: String, required: true }, title: String }),
+);
+const GovernedRecord = mongoose.model(
+  "GovernedRecordForV3",
+  new Schema({ ownerId: { type: String, required: true }, title: String }),
+);
+const changes: string[] = [];
+const cachedResponses = new Map<string, unknown>();
+let invalidations = 0;
 const app = express();
 app.use(express.json());
 app.use(
@@ -89,7 +104,12 @@ app.use(
             sort: { allowedFields: ["name", "age"] },
             maxLimit: 2,
             cursorPagination: { field: "age", type: "number", maxLimit: 2 },
+            clientProjection: {
+              allowedFields: ["name", "email"],
+              maxFields: 2,
+            },
           },
+          permissions: { readable: ["name", "age"] },
         },
       },
     ],
@@ -101,6 +121,7 @@ patchOnlyApp.use(
   createMaggie({
     prefix: "/api",
     requestId: (req) => req.header("x-custom-request") || undefined,
+    metadata: { authorize: (req) => req.header("x-admin") === "yes" },
     models: [
       {
         model: PatchOnly,
@@ -110,14 +131,35 @@ patchOnlyApp.use(
         }),
       },
       { model: UniqueOnly, path: "unique-only" },
+      {
+        model: Department,
+        path: "departments",
+        settings: {
+          relations: [
+            { path: "employees", model: Employee, foreignField: "department" },
+          ],
+        },
+      },
       { model: NoContent, path: "no-content", settings: { deleteStatus: 204 } },
       {
         model: SoftPerson,
         path: "soft-people",
+        validationSchema: Joi.object({ name: Joi.string().required() }),
         settings: {
           softDelete: {
             deletedBy: "deletedBy",
             getDeletedBy: (req) => req.header("x-actor"),
+          },
+          lifecycle: {
+            createdBy: "createdBy",
+            updatedBy: "updatedBy",
+            createdAt: "createdAt",
+            updatedAt: "updatedAt",
+            getActor: (req) => req.header("x-actor"),
+          },
+          bulk: { allowUpdate: true, allowDelete: true },
+          get: {
+            filter: { fields: { name: { type: "string", operators: ["eq"] } } },
           },
         },
       },
@@ -145,6 +187,57 @@ patchOnlyApp.use(
     ],
   }),
 );
+const tenantApp = express();
+tenantApp.use(express.json());
+tenantApp.use(
+  createMaggie({
+    prefix: "/api",
+    models: [
+      {
+        model: TenantRecord,
+        path: "records",
+        settings: {
+          tenant: {
+            field: "tenantId",
+            resolve: (req) => req.header("x-tenant"),
+          },
+          events: { onChange: ({ operation }) => changes.push(operation) },
+          cache: {
+            key: ({ operation, req, id }) =>
+              `${operation}:${req.header("x-tenant")}:${id || req.originalUrl}`,
+            get: (key) => cachedResponses.get(key),
+            set: (key, value) => void cachedResponses.set(key, value),
+            invalidate: () => {
+              invalidations += 1;
+              cachedResponses.clear();
+            },
+          },
+        },
+      },
+    ],
+  }),
+);
+const governedApp = express();
+governedApp.use(express.json());
+governedApp.use(
+  createMaggie({
+    prefix: "/api",
+    models: [
+      {
+        model: GovernedRecord,
+        path: "governed-records",
+        settings: {
+          authorize: {
+            read: (req) => req.header("x-can-read") === "yes",
+            bulk: (req) => req.header("x-can-bulk") === "yes",
+          },
+          queryScope: (req) => ({ ownerId: req.header("x-owner") }),
+          bulk: { allowUpdate: true, allowDelete: true },
+        },
+      },
+    ],
+  }),
+);
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
@@ -157,6 +250,115 @@ afterAll(async () => {
 });
 
 describe("generated routes", () => {
+  it("protects metadata and serves declared nested relations", async () => {
+    expect((await request(patchOnlyApp).get("/api/_meta")).status).toBe(403);
+    const metadata = await request(patchOnlyApp)
+      .get("/api/_meta")
+      .set("x-admin", "yes");
+    expect(metadata.status).toBe(200);
+    expect(metadata.body.message).toBe("API metadata fetched successfully");
+    expect(metadata.body.data.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "DepartmentForV2" }),
+      ]),
+    );
+    const department = await Department.create({ name: "Nested" });
+    await Employee.create({
+      name: "Nested employee",
+      department: department._id,
+    });
+    const nested = await request(patchOnlyApp).get(
+      `/api/departments/${department._id}/employees`,
+    );
+    expect(nested.status).toBe(200);
+    expect(nested.body.data.employeeforv2s).toHaveLength(1);
+  });
+
+  it("enforces tenant isolation and invokes event and cache hooks", async () => {
+    const created = await request(tenantApp)
+      .post("/api/records")
+      .set("x-tenant", "one")
+      .send({ title: "private" });
+    expect(created.status).toBe(201);
+    expect(created.body.data.tenantId).toBe("one");
+    const id = created.body.data._id;
+    expect(
+      (
+        await request(tenantApp)
+          .post("/api/records")
+          .set("x-tenant", "one")
+          .send({ title: "wrong", tenantId: "two" })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(tenantApp)
+          .get(`/api/records/${id}`)
+          .set("x-tenant", "two")
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(tenantApp)
+          .patch(`/api/records/${id}`)
+          .set("x-tenant", "one")
+          .send({ tenantId: "two" })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(tenantApp)
+          .patch(`/api/records/${id}`)
+          .set("x-tenant", "one")
+          .send({ title: "updated" })
+      ).status,
+    ).toBe(200);
+    expect(changes).toEqual(expect.arrayContaining(["create", "update"]));
+    expect(invalidations).toBeGreaterThanOrEqual(2);
+  });
+
+  it("applies authorization and query scopes to bulk mutations", async () => {
+    await GovernedRecord.create([
+      { ownerId: "one", title: "one" },
+      { ownerId: "two", title: "two" },
+    ]);
+    expect(
+      (await request(governedApp).get("/api/governed-records")).status,
+    ).toBe(403);
+    const ownerOne = await request(governedApp)
+      .get("/api/governed-records")
+      .set("x-can-read", "yes")
+      .set("x-owner", "one");
+    expect(ownerOne.body.data.governedrecordforv3s).toHaveLength(1);
+    expect(
+      (
+        await request(governedApp)
+          .get("/api/governed-records?filter[title]=one")
+          .set("x-can-read", "yes")
+          .set("x-owner", "one")
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(governedApp)
+          .patch("/api/governed-records/bulk")
+          .set("x-can-bulk", "yes")
+          .set("x-owner", "one")
+          .send({ filter: {}, update: { title: "changed" } })
+      ).body.data.modifiedCount,
+    ).toBe(1);
+    expect(
+      (
+        await request(governedApp)
+          .delete("/api/governed-records/bulk")
+          .set("x-can-bulk", "yes")
+          .set("x-owner", "one")
+          .send({ filter: {} })
+      ).body.data.deletedCount,
+    ).toBe(1);
+    expect(await GovernedRecord.countDocuments({ ownerId: "two" })).toBe(1);
+  });
+
   it("creates, reads, patches and deletes with stable envelopes", async () => {
     const created = await request(app)
       .post("/api/people")
@@ -236,6 +438,13 @@ describe("generated routes", () => {
     expect(secondCursorPage.body.data.members).toHaveLength(1);
     expect(secondCursorPage.body.data.members[0].name).toBe("Bee");
     expect((await request(app).get("/api/people?sort=email")).status).toBe(400);
+    expect((await request(app).get("/api/people?fields=email")).status).toBe(
+      400,
+    );
+    expect(
+      (await request(app).get("/api/people?search=Bee&searchFields=email"))
+        .status,
+    ).toBe(400);
     expect(
       (await request(app).get("/api/people?filter[age][gte]=bad")).status,
     ).toBe(400);
@@ -325,13 +534,56 @@ describe("generated routes", () => {
     ).toHaveLength(0);
     expect((await SoftPerson.findById(created.id))?.deletedAt).toBeTruthy();
   });
+  it("hardens bulk writes with validation, lifecycle data, and soft deletes", async () => {
+    const created = await request(patchOnlyApp)
+      .post("/api/soft-people/bulk")
+      .set("x-actor", "admin-42")
+      .send([{ name: "Bulk record" }]);
+    expect(created.status).toBe(201);
+    expect(created.body.data[0]).toMatchObject({
+      createdBy: "admin-42",
+      updatedBy: "admin-42",
+    });
+
+    expect(
+      (
+        await request(patchOnlyApp)
+          .patch("/api/soft-people/bulk")
+          .set("x-actor", "admin-43")
+          .send({ filter: { $where: "this.name" }, update: { name: "unsafe" } })
+      ).status,
+    ).toBe(400);
+
+    const updated = await request(patchOnlyApp)
+      .patch("/api/soft-people/bulk")
+      .set("x-actor", "admin-43")
+      .send({
+        filter: { name: "Bulk record" },
+        update: { name: "Updated bulk" },
+      });
+    expect(updated.status).toBe(200);
+    expect(
+      (await SoftPerson.findOne({ name: "Updated bulk" }))?.updatedBy,
+    ).toBe("admin-43");
+
+    const removed = await request(patchOnlyApp)
+      .delete("/api/soft-people/bulk")
+      .set("x-actor", "admin-44")
+      .send({ filter: { name: "Updated bulk" } });
+    expect(removed.status).toBe(200);
+    const stored = await SoftPerson.findOne({ name: "Updated bulk" });
+    expect(stored?.deletedAt).toBeTruthy();
+    expect(stored?.deletedBy).toBe("admin-44");
+  });
   it("populates configured relations and preserves middleware and request-ID behavior", async () => {
     const department = await Department.create({ name: "Engineering" });
     await Employee.create({ name: "Ada", department: department.id });
     const employees = await request(patchOnlyApp).get("/api/employees");
-    expect(employees.body.data.employeeforv2s[0].department.name).toBe(
-      "Engineering",
-    );
+    expect(
+      employees.body.data.employeeforv2s.find(
+        (employee: any) => employee.name === "Ada",
+      ).department.name,
+    ).toBe("Engineering");
 
     middlewareOrder.length = 0;
     const response = await request(patchOnlyApp)

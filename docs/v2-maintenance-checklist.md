@@ -1,6 +1,6 @@
-# Version 2 maintenance checklist
+# Version 2 maintenance record
 
-This checklist records the defects and maintenance work completed for the version 2 codebase before the version 3 release.
+This is an archived delivery checklist for the hardening work retained in v3. For current development expectations, see the [development guide](development.md).
 
 ## Correctness fixes completed
 

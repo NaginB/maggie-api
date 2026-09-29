@@ -1,16 +1,38 @@
 # maggie-api
 
-`maggie-api` mounts conventional CRUD routes for Mongoose models in an Express application. Configure each model once to opt into body validation, unique-key checks, field selection, population, search, filtering, sorting, and pagination.
+> A secure, configurable CRUD router for Express and Mongoose.
 
-## Installation
+`maggie-api` turns a Mongoose model into a conventional REST resource without giving up control. Start with predictable CRUD routes, then explicitly opt into validation, field permissions, query controls, authorization, tenancy, soft deletes, bulk writes, relations, and OpenAPI.
+
+|         |                                                                   |
+| ------- | ----------------------------------------------------------------- |
+| Runtime | Node.js `>=20 <25`                                                |
+| Peers   | Express `>=5.2.1 <6`, Mongoose `>=8.24.4 <9`, Joi `>=17.13.8 <18` |
+| Package | `maggie-api@3`                                                    |
+
+## Why Maggie?
+
+- **Secure by default.** Client-controlled filtering, sorting, search, projection, and population are allow-listed.
+- **A familiar API.** Generate `POST`, `GET`, `PATCH`, `PUT`, and `DELETE` routes for each model.
+- **Production controls.** Apply authorizers, row scopes, tenant isolation, lifecycle hooks, events, caching, and soft deletion at the resource boundary.
+- **One source of truth.** Generate an OpenAPI 3.1 document from the same configuration that builds the router.
+
+## Documentation
+
+| Start here                                   | Build safely                                  | Reference                                  |
+| -------------------------------------------- | --------------------------------------------- | ------------------------------------------ |
+| [Quick start](docs/getting-started.md)       | [Features explained simply](docs/features.md) | [Configuration](docs/configuration.md)     |
+| [Routes and responses](docs/api-behavior.md) | [Migration guide](docs/v2-migration.md)       | [Full documentation index](docs/README.md) |
+
+## Install
 
 ```bash
 npm install maggie-api express mongoose joi
 ```
 
-`express` 5, `mongoose` 8, and `joi` 17 are peer dependencies; install them in the application that uses Maggie. Your application must connect Mongoose to MongoDB before handling requests. Node.js 20 or later is required.
+Connect Mongoose before serving requests. Maggie does not create a database connection or parse request bodies for you.
 
-## Quick start
+## Five-minute quick start
 
 ```ts
 import express from "express";
@@ -21,93 +43,96 @@ import { createMaggie } from "maggie-api";
 const app = express();
 app.use(express.json());
 
-const userSchema = new Schema({
-  firstName: { type: String, required: true },
-  lastName: { type: String, required: true },
-  email: { type: String, required: true },
-});
-const User = mongoose.model("User", userSchema);
+const User = mongoose.model(
+  "User",
+  new Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+  }),
+);
 
-const api = createMaggie({
-  prefix: "/api/v3",
-  models: [
-    {
-      model: User,
-      path: "users",
-      primaryKey: "email",
-      validationSchema: Joi.object({
-        _id: Joi.string(),
-        firstName: Joi.string().required(),
-        lastName: Joi.string().required(),
-        email: Joi.string().email().required(),
-      }),
-      settings: {
-        legacyPostUpdate: false,
-        maxBulkSize: 100,
-        get: {
-          keys: ["_id", "firstName", "lastName", "email"],
-          search: { allowedFields: ["firstName", "lastName", "email"] },
-          filter: { strict: true, fields: { email: { type: "string" } } },
-          sort: { allowedFields: ["firstName", "lastName"] },
-          maxLimit: 100,
+app.use(
+  createMaggie({
+    prefix: "/api/v3",
+    models: [
+      {
+        model: User,
+        path: "users",
+        primaryKey: "email",
+        validationSchema: Joi.object({
+          name: Joi.string().trim().min(1).required(),
+          email: Joi.string().email().required(),
+        }),
+        settings: {
+          legacyPostUpdate: false,
+          get: {
+            keys: ["_id", "name", "email"],
+            maxLimit: 50,
+            search: { allowedFields: ["name", "email"] },
+            filter: { fields: { email: { type: "string" } } },
+            sort: { allowedFields: ["name"] },
+          },
+          getById: { keys: ["_id", "name", "email"] },
         },
-        getById: { keys: ["_id", "firstName", "lastName", "email"] },
       },
-    },
-  ],
-});
+    ],
+  }),
+);
 
-app.use(api);
 await mongoose.connect(process.env.MONGODB_URI!);
 app.listen(3000);
 ```
 
-## Generated routes
+Try it:
 
-For a model configured with `prefix: "/api/v3"` and `path: "users"`:
+```bash
+curl -X POST http://localhost:3000/api/v3/users \
+  -H 'content-type: application/json' \
+  -d '{"name":"Ada Lovelace","email":"ada@example.com"}'
+```
 
-| Method   | Route                | Behavior                                                                                      |
-| -------- | -------------------- | --------------------------------------------------------------------------------------------- |
-| `POST`   | `/api/v3/users`      | Creates a document. Legacy `_id` updates require `legacyPostUpdate: true` (the default).      |
-| `POST`   | `/api/v3/users/bulk` | Inserts a non-empty array of documents.                                                       |
-| `PATCH`  | `/api/v3/users/:id`  | Partially updates one document.                                                               |
-| `PUT`    | `/api/v3/users/:id`  | Replaces one document; uses the full create schema unless a replacement schema is configured. |
-| `GET`    | `/api/v3/users`      | Returns all matching documents.                                                               |
-| `GET`    | `/api/v3/users/:id`  | Returns one document by MongoDB id.                                                           |
-| `DELETE` | `/api/v3/users/:id`  | Deletes one document by MongoDB id.                                                           |
+## Routes at a glance
 
-All routes receive `middleWares`, when configured. `validationSchema` is applied to the single-document and bulk `POST` routes. PATCH uses `updateValidationSchema` when supplied, otherwise an optionalized form of `validationSchema`. Joi validation converts values and strips unknown fields.
+For `prefix: "/api/v3"` and `path: "users"`:
 
-## List query parameters
+| Method   | Route                | Purpose                                                                        |
+| -------- | -------------------- | ------------------------------------------------------------------------------ |
+| `POST`   | `/api/v3/users`      | Create a document. A body with `_id` performs a legacy update unless disabled. |
+| `POST`   | `/api/v3/users/bulk` | Create a non-empty array of documents.                                         |
+| `GET`    | `/api/v3/users`      | List documents using configured query controls.                                |
+| `GET`    | `/api/v3/users/:id`  | Fetch one document.                                                            |
+| `PATCH`  | `/api/v3/users/:id`  | Partially update one document.                                                 |
+| `PUT`    | `/api/v3/users/:id`  | Replace one document.                                                          |
+| `DELETE` | `/api/v3/users/:id`  | Delete or soft-delete one document.                                            |
 
-`GET` list routes support the following parameters.
+Optional `PATCH /bulk` and `DELETE /bulk` routes require their respective `settings.bulk` flags. See the [API behavior reference](docs/api-behavior.md) for response envelopes, status codes, and query syntax.
 
-| Parameter          | Example                                                        | Notes                                                                                       |
-| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `search`           | `?search=ada`                                                  | Literal, length-limited search; requires a configured searchable field.                     |
-| `searchFields`     | `?searchFields=firstName,lastName`                             | Restricted to `search.allowedFields` when provided.                                         |
-| `caseSensitive`    | `?caseSensitive=true`                                          | Search is case-insensitive by default.                                                      |
-| `filter`           | `?filter[email]=ada@example.com`                               | Requires `filter.fields` or `filter.allowedFields`; strict mode rejects unknown fields.     |
-| Range filter       | `?filter[age][gte]=18`                                         | Requires `age` to permit `gte`; supported range operators are `gte`, `lte`, `gt`, and `lt`. |
-| Array filter       | `?filter[email][]=a@example.com&filter[email][]=b@example.com` | Produces `$in` when the field permits `in`.                                                 |
-| `sort`             | `?sort=-createdAt,lastName`                                    | Fields must be in `settings.get.sort.allowedFields`.                                        |
-| `limit` and `page` | `?limit=20&page=2`                                             | Positive integers; `limit` is capped by `maxLimit`.                                         |
+## Production checklist
 
-When pagination is active, the response data contains the configured `responseKey` (or the pluralized model name) and `pagination` metadata.
+Before exposing a resource, configure these deliberately:
 
-## Configuration
+1. Use a Joi schema and Mongoose unique index for every value that must be unique.
+2. Define `get.keys` and `getById.keys` so sensitive fields never leave the API.
+3. Allow-list search, filter, and sort fields; leave regex and logical filters off unless needed.
+4. Add `authorize`, `queryScope`, or `tenant` when requests are not public.
+5. Turn off `legacyPostUpdate` once clients use `PATCH /:id`.
 
-See [the configuration reference](docs/configuration.md) for the supported options and [the API behavior reference](docs/api-behavior.md) for response and edge-case details. Contributors should start with [the development guide](docs/development.md).
+The [security guide](docs/security.md) explains each control and includes a hardened example.
 
-## Notes
+## OpenAPI
 
-- `getKeys` and `getByIdKeys` remain supported for compatibility, but prefer `settings.get.keys` and `settings.getById.keys`.
-- `primaryKey` performs an application-level duplicate check. Add a unique index to the Mongoose schema as the database-level guarantee; Mongo duplicate-key errors return `409 CONFLICT`.
-- Errors use a consistent envelope with `data: null`, a stable `code`, and optional structured `details` for validation failures.
-- `POST` updates remain compatible by default. Set `settings.legacyPostUpdate: false` to require `PATCH /:id`.
-- Set `settings.softDelete` to retain deleted documents. Soft-deleted records are hidden from generated reads by default.
-- For v1-to-v2 upgrade guidance and the v3 feature summary, see the [migration guide](docs/v2-migration.md).
+Build a specification from the payload you pass to `createMaggie`:
 
-## License
+```ts
+import { createOpenApiDocument } from "maggie-api";
 
-Apache-2.0. See [license](license).
+const document = createOpenApiDocument(maggiePayload, {
+  title: "Members API",
+  version: "3.0.0",
+  description: "Public API for the Members service.",
+});
+```
+
+## Development and support
+
+Run `npm run check` before publishing a change. It runs formatting, linting, tests, TypeScript compilation, and a package-content check. See the [development guide](docs/development.md), [changelog](CHANGELOG.md), and [Apache-2.0 license](license).

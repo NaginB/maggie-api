@@ -2,9 +2,15 @@ import { randomUUID } from "crypto";
 import { Request, RequestHandler, Router } from "express";
 import Joi from "joi";
 import { createController } from "../controllers";
+import { getAll } from "../services";
 import { ISetting, MaggieOperation, MaggiePayload } from "../utils/interface";
 import { sendError } from "../utils/errors";
-import { validateBody } from "../utils/validateBody";
+import { validateBody, validateBodyField } from "../utils/validateBody";
+
+const optionalSchema = (schema: Joi.ObjectSchema) =>
+  schema.fork(Object.keys(schema.describe().keys || {}), (field) =>
+    field.optional(),
+  );
 
 const asHandler =
   (handler: (req: Request, res: any) => Promise<unknown>): RequestHandler =>
@@ -17,6 +23,7 @@ const createMaggie = ({
   models,
   requestId,
   logger,
+  metadata,
 }: MaggiePayload): Router => {
   const router = Router();
   router.use((req, res, next) => {
@@ -25,6 +32,65 @@ const createMaggie = ({
     res.setHeader("x-request-id", id);
     next();
   });
+  if (metadata && metadata.enabled !== false) {
+    router.get(metadata.path || `${prefix}/_meta`, async (req, res, next) => {
+      try {
+        if (!(await metadata.authorize(req)))
+          return void sendError(req, res, 403, "FORBIDDEN", "Forbidden");
+        const resources = models.map((entry) => {
+          const settings = entry.settings || {};
+          const fields = entry.validationSchema?.describe().keys || {};
+          return {
+            name: entry.model.modelName,
+            path: `${prefix}/${entry.path}`,
+            fields: Object.fromEntries(
+              Object.entries(fields).map(([name, field]: [string, any]) => [
+                name,
+                {
+                  type: field.type,
+                  required: field.flags?.presence === "required",
+                },
+              ]),
+            ),
+            operations: [
+              "create",
+              "read",
+              "update",
+              "replace",
+              "delete",
+              "bulk",
+            ].filter(
+              (operation) =>
+                operation !== "bulk" ||
+                settings.bulk?.allowUpdate ||
+                settings.bulk?.allowDelete ||
+                true,
+            ),
+            permissions: settings.permissions || {},
+            filters: settings.get?.filter || {},
+            sorting: settings.get?.sort || {},
+            pagination: {
+              maxLimit: settings.get?.maxLimit ?? 100,
+              cursor: settings.get?.cursorPagination || null,
+            },
+            relations: (settings.relations || []).map((relation) => ({
+              path: relation.path,
+              foreignField: relation.foreignField,
+            })),
+          };
+        });
+        res.json({
+          success: true,
+          statusCode: 200,
+          message: "API metadata fetched successfully",
+          data: { resources },
+        });
+        return;
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
   models.forEach(
     ({
       model,
@@ -61,6 +127,7 @@ const createMaggie = ({
       const updateMiddleware: RequestHandler[] = [...middleWares];
       const replaceMiddleware: RequestHandler[] = [...middleWares];
       const bulkMiddleware: RequestHandler[] = [...middleWares];
+      const bulkUpdateMiddleware: RequestHandler[] = [...middleWares];
       if (validationSchema) {
         createMiddleware.push(validateBody(validationSchema));
         bulkMiddleware.push(validateBody(Joi.array().items(validationSchema)));
@@ -72,13 +139,14 @@ const createMaggie = ({
       if (updateValidationSchema)
         updateMiddleware.push(validateBody(updateValidationSchema));
       else if (validationSchema)
-        updateMiddleware.push(
-          validateBody(
-            validationSchema.fork(
-              Object.keys(validationSchema.describe().keys || {}),
-              (field) => field.optional(),
-            ),
-          ),
+        updateMiddleware.push(validateBody(optionalSchema(validationSchema)));
+      if (updateValidationSchema)
+        bulkUpdateMiddleware.push(
+          validateBodyField("update", updateValidationSchema),
+        );
+      else if (validationSchema)
+        bulkUpdateMiddleware.push(
+          validateBodyField("update", optionalSchema(validationSchema)),
         );
       subRouter.post(
         "/",
@@ -96,7 +164,7 @@ const createMaggie = ({
         subRouter.patch(
           "/bulk",
           authorize("bulk"),
-          ...middleWares,
+          ...bulkUpdateMiddleware,
           asHandler(controller.bulkUpdate),
         );
       if (settingsObj.bulk?.allowDelete)
@@ -130,6 +198,44 @@ const createMaggie = ({
         ...middleWares,
         asHandler(controller.getAll),
       );
+      for (const relation of settingsObj.relations || []) {
+        subRouter.get(
+          `/:id/${relation.path}`,
+          authorize("read"),
+          ...middleWares,
+          async (req, res, next) => {
+            try {
+              const relatedSettings: ISetting = {
+                getByIdKeys: [],
+                getKeys: [],
+                ...(relation.filter
+                  ? {
+                      get: {
+                        filter: relation.filter,
+                        populate: relation.populate,
+                      },
+                    }
+                  : { get: { populate: relation.populate } }),
+              };
+              const result = await getAll(
+                relation.model,
+                relatedSettings,
+                req,
+                { [relation.foreignField]: req.params.id },
+              );
+              res.status(200).json({
+                success: true,
+                statusCode: 200,
+                message: `${relation.model.modelName} fetched successfully`,
+                data: result,
+              });
+              return;
+            } catch (error) {
+              next(error);
+            }
+          },
+        );
+      }
       subRouter.get(
         "/:id",
         authorize("read"),

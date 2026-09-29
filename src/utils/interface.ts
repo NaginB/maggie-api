@@ -93,6 +93,67 @@ export interface MaggieHooks {
   afterUpdate?: MaggieHook;
   beforeDelete?: MaggieHook;
   afterDelete?: MaggieHook;
+  beforeBulk?: MaggieHook;
+  afterBulk?: MaggieHook;
+}
+export interface MaggieChangeEvent extends MaggieHookContext {
+  /** `bulk` for insert, update, and delete bulk operations. */
+  operation: MaggieOperation;
+}
+export type MaggieChangeListener = (
+  event: MaggieChangeEvent,
+) => void | Promise<void>;
+export interface MaggieEvents {
+  /** Called for every completed mutating operation. */
+  onChange?: MaggieChangeListener;
+  create?: MaggieChangeListener;
+  update?: MaggieChangeListener;
+  replace?: MaggieChangeListener;
+  delete?: MaggieChangeListener;
+  bulk?: MaggieChangeListener;
+  /** Compatible with Node-style event emitters. The event name is the operation. */
+  emit?: (event: MaggieOperation, payload: MaggieChangeEvent) => unknown;
+}
+export interface TenantConfig {
+  /** Document field that stores the resolved tenant value. */
+  field: string;
+  resolve: (req: Request) => unknown | Promise<unknown>;
+  /** Reject requests without a tenant value. Defaults to true. */
+  required?: boolean;
+}
+export interface CacheContext {
+  operation: "list" | "byId" | "invalidate";
+  req: Request;
+  model: Model<any>;
+  id?: string;
+}
+export interface MaggieCache {
+  /** Return undefined for a cache miss. */
+  get(key: string): unknown | Promise<unknown>;
+  set(key: string, value: unknown): void | Promise<void>;
+  /** Called after every successful mutation. */
+  invalidate(context: CacheContext): void | Promise<void>;
+  /** Builds an application-specific key. Returning undefined bypasses caching. */
+  key(context: CacheContext): string | undefined;
+}
+export interface RelationConfig {
+  /** Name used in the nested route, for example `comments`. */
+  path: string;
+  /** Field on the related model that points to this resource. */
+  foreignField: string;
+  /** Model to query for the nested resource. */
+  model: Model<any>;
+  /** Optional population used when returning the nested documents. */
+  populate?: PopulateField[];
+  /** Optional strict filter policy for this nested route. */
+  filter?: FilterConfig;
+}
+export interface MetadataConfig {
+  /** Enables `GET {prefix}/_meta` (or `path`). It is deliberately opt-in. */
+  enabled?: boolean;
+  path?: string;
+  /** Metadata can reveal application structure, so an authorizer is required. */
+  authorize: (req: Request) => boolean | Promise<boolean>;
 }
 export type MaggieAuthorizer = (
   req: Request,
@@ -147,6 +208,10 @@ export interface APISettings {
     req: Request,
     operation: "read" | "update" | "replace" | "delete",
   ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  tenant?: TenantConfig;
+  events?: MaggieEvents;
+  cache?: MaggieCache;
+  relations?: RelationConfig[];
 }
 export interface MaggieModelPayload {
   model: Model<any>;
@@ -178,6 +243,7 @@ export interface MaggiePayload {
   models: MaggieModelPayload[];
   requestId?: (req: Request) => string | undefined;
   logger?: MaggieLogger;
+  metadata?: MetadataConfig;
 }
 export interface ISetting extends APISettings {
   getByIdKeys: string[];
